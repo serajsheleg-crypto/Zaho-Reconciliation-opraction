@@ -84,6 +84,8 @@ export interface SideMap {
   date_serial: boolean;
   /** From the side's template: which rows of the file are compared. */
   filters?: RowFilter[];
+  /** From the side's template: a field read from the companion row of the same reference. */
+  parts?: RowPart[];
   skip_no_key?: boolean;
 }
 
@@ -119,6 +121,8 @@ export interface Rules {
   /** The company template each side's file was read with. */
   templates?: { a: TemplateRef | null; b: TemplateRef | null } | null;
   template_statuses?: { a: ApprovedStatus[]; b: ApprovedStatus[] } | null;
+  /** The reconciliation template the run was started from, as it was then. */
+  recon_template?: { id: number; name: string; version: number; label_a: string; label_b: string } | null;
 }
 
 export type StatusMode = "exact" | "auto";
@@ -152,6 +156,8 @@ export interface TemplateSpec {
   columns: TemplateColumn[];
   sheet: string | null;
   filters: RowFilter[];
+  /** Fields read from the companion row of the same reference (the fee on the profit_customer row). */
+  parts?: RowPart[];
   skip_no_key: boolean;
   /** A header row a person picked (null = detected in every file). */
   header_row: number | null;
@@ -174,6 +180,7 @@ export interface Template {
     sheet?: string | null;
     header_row?: number | null;
     filters?: RowFilter[];
+    parts?: RowPart[];
     skip_no_key?: boolean;
   };
   spec?: TemplateSpec;
@@ -442,4 +449,86 @@ export interface Paged<T> {
   total: number;
   page: number;
   size: number;
+}
+
+/** A field a layout reads from the companion row of the same reference ("fee" = Amount where Type is profit_customer). */
+export interface RowPart {
+  field: "amount" | "fee";
+  column: string;
+  by: string;
+  values: string[];
+}
+
+/** Where a layout reads a field: a column, or a column of the companion row. */
+export interface FieldSource {
+  column: string;
+  by?: string;
+  values?: string[];
+}
+
+/** A field two layouts can be reconciled on: "key", "amount"… or "extra:Direction". */
+export interface FieldPair {
+  id: string;
+  label: string;
+  a: FieldSource | null;
+  b: FieldSource | null;
+}
+
+export interface ReconRules {
+  key_mode: "exact" | "case_insensitive" | "loose";
+  amount_tolerance: number;
+  amount_tolerance_pct: number;
+  amount_absolute: boolean;
+  date_tolerance_days: number;
+  status_mode: StatusMode;
+  fallback_match: boolean;
+}
+
+export interface LayoutRef {
+  id: number;
+  name: string;
+  company_id: number;
+  company: string;
+  summary?: Template["summary"];
+}
+
+/** A recurring reconciliation: our layout, the partner's layout, and what is compared between them. */
+export interface ReconTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  layout_a: number;
+  layout_b: number;
+  label_a: string;
+  label_b: string;
+  config: { compare: string[]; rules: ReconRules };
+  version: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
+  layouts: { a: LayoutRef | null; b: LayoutRef | null };
+  pairs?: FieldPair[];
+  runs: number;
+  last_run: string | null;
+}
+
+/** One problem found in the two files: `side` is "a" or "b" when it belongs to one file. */
+export interface FileProblem {
+  code: string;
+  side?: "a" | "b";
+  field?: string;
+  column?: string;
+  detail?: string;
+}
+
+/** What the run screen gets for a template and two uploaded files. */
+export interface TemplatePlan {
+  errors: FileProblem[];
+  warnings: FileProblem[];
+  reread: { a: { sheet?: string; header_row?: number } | null; b: { sheet?: string; header_row?: number } | null };
+  unexpected?: { a: string[]; b: string[] };
+  mapping?: Mapping;
+  check?: CheckResult | null;
+  config?: ReconTemplate["config"];
+  pairs?: FieldPair[];
 }

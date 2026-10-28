@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Activity, AlertTriangle, Building2, Gauge, GitCompareArrows, Languages, LayoutDashboard, ListChecks, LogOut, Menu,
-  Moon, PlusCircle, Server, Sun, UserCog, Users,
+  Activity, AlertTriangle, Building2, Gauge, GitCompareArrows, Languages, LayoutDashboard, LayoutTemplate, ListChecks, LogOut, Menu, Moon, PlusCircle, Server, Sun, UserCog, Users,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useAuth } from "../lib/auth";
@@ -104,6 +103,7 @@ export default function Layout() {
           </div>
           <div className="nav-group">
             <p>{t("nav.setup")}</p>
+            <Item to="/recon-templates" icon={<LayoutTemplate />}>{t("nav.recon")}</Item>
             <Item to="/companies" icon={<Building2 />}>{t("nav.companies")}</Item>
             <Item to="/settings" icon={<ListChecks />}>{t("nav.matching")}</Item>
             {can("admin") && <Item to="/users" icon={<Users />}>{t("nav.users")}</Item>}

@@ -72,6 +72,9 @@ export default function RunDetail() {
           {s && (
             <p className="small faint">
               {[
+                r.config?.rules.recon_template
+                  ? t("run.fromTemplate", { name: r.config.rules.recon_template.name, v: r.config.rules.recon_template.version })
+                  : null,
                 s.compared.templates?.a || s.compared.templates?.b
                   ? t("run.usedTemplates", {
                       a: templateName(s.compared.templates.a) || t("new.detected"),

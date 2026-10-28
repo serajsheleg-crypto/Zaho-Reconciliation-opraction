@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__, db, jobs, logs
 from .config import ROOT, settings
-from .routers import admin, auth, companies, datasets, exceptions, runs, settings as settings_router
+from .routers import admin, auth, companies, datasets, exceptions, recon_templates, runs, settings as settings_router
 from .security import seed_admin
 
 logs.setup()
@@ -48,6 +48,8 @@ def _wait_for_database() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if jobs.pool._shutdown:
+        jobs.restart_pool()
     try:
         _prepare_database()
     except DBAPIError as exc:
@@ -121,7 +123,7 @@ async def database_error(request: Request, exc: DBAPIError):
 
 
 for r in (auth.router, datasets.router, runs.router, exceptions.router, settings_router.router, companies.router,
-          admin.router):
+          recon_templates.router, admin.router):
     app.include_router(r)
 
 

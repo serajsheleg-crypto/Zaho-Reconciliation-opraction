@@ -26,6 +26,12 @@ from .engine.reconcile import DB_COLUMNS, Cancelled, ConfigError, reconcile, res
 
 log = logging.getLogger("zaho.jobs")
 pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="zr-job")
+
+
+def restart_pool() -> None:
+    """A fresh pool for an app start after a stop in the same process (the old one was shut down)."""
+    global pool
+    pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="zr-job")
 _cancel: set[str] = set()
 _lock = threading.Lock()
 

@@ -41,7 +41,7 @@ await page.waitForURL(`${base}/`);
 if ((await page.getAttribute("html", "lang")) === "ar") await page.getByRole("button", { name: "English" }).click();
 
 // ---- upload: the card offers every row, not a 15-row preview
-await page.goto(`${base}/new`);
+await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".dropzone");
 await page.locator(".ledger.a input[type=file]").setInputFiles(ours);
 await page.locator(".ledger.b input[type=file]").setInputFiles(theirs);
@@ -98,7 +98,7 @@ await shot("p1-10-system", true);
 
 // ---- Arabic, right to left
 await page.evaluate(() => localStorage.setItem("zr.lang", "ar"));
-await page.goto(`${base}/new`);
+await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".dropzone");
 await page.locator(".ledger.a input[type=file]").setInputFiles(ours);
 await page.waitForSelector(".ledger.a .file-card");

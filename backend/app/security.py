@@ -21,9 +21,9 @@ ROLES = ("admin", "analyst", "viewer")
 
 # --------------------------------------------------------------------------- errors
 
-def fail(status: int, code: str, message: str) -> HTTPException:
-    """Errors carry a stable `code` the UI translates (EN/AR) and an English fallback."""
-    return HTTPException(status_code=status, detail={"code": code, "message": message})
+def fail(status: int, code: str, message: str, **extra) -> HTTPException:
+    """Errors carry a stable `code` the UI translates (EN/AR), an English fallback and any details (`extra`)."""
+    return HTTPException(status_code=status, detail={"code": code, "message": message, **extra})
 
 
 # --------------------------------------------------------------------------- passwords (scrypt, stdlib)

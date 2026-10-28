@@ -34,7 +34,31 @@ Double-click **`start.bat`**. The browser opens at <http://127.0.0.1:8077>.
 
 First sign-in: **admin@zaho.ly / Admin@2026**. The app asks you to change this password.
 
-## How a reconciliation works
+## Reconciliation templates (recurring reconciliations)
+
+A reconciliation done again and again ("OnePay Reconciliation") is set up **once** and then run with two uploads:
+
+1. **Companies & report layouts** (admin): a *report layout* says where each field is in one company's report
+   (reference, amount, fee, status, date…), learned from a sample file and corrected by hand. A layout can keep
+   only some rows (`Type = purchase`) and read a field from the companion row of the same reference (Dogoon's
+   commission is the `Amount` of the `profit_customer` row).
+2. **Reconciliation templates** (admin): pick our layout and the partner's layout. The editor shows their columns
+   side by side, whatever their names: the reference pair is the **matching key**, and you tick the fields that are
+   **compared** (the others are shown in the results but never make a mismatch). Add the rules (amount tolerance,
+   ignore the sign, reference matching, optional amount + day fallback). Templates are versioned; saving over a
+   newer version is refused.
+3. **New reconciliation → Use a reconciliation template**: pick it, upload *Our report — Zaho* and *Third-party
+   report — {partner}*. The server reads each file with its layout and refuses to run when a needed column is
+   missing or ambiguous, the files are the wrong way round, or a file has no transactions / references / readable
+   amounts. Then **Run reconciliation**: the server builds the mapping and rules from the template itself and the
+   run keeps a full copy of the template (with both layouts), so editing or deleting the template later never
+   changes an old run or "Run again".
+
+**Set up manually** (the four steps below) is still there for new or one-off reconciliations.
+`scripts\example_templates.py` saves the three reconciliations of the example workbooks (top-ups/Moamalat, local
+cards/Dogoon, Khales/Libyana); their compared fields are exactly the red columns of the examples.
+
+## How a reconciliation works (manual setup)
 
 1. **Files.** Drop a file on each side (CSV, TXT, TSV, XLSX/XLS/XLSB/ODS, JSON/JSONL, Parquet, up to
    1 GB). Excel title rows above the table, Arabic Windows-1256 CSVs and Arabic-Indic digits are handled
@@ -117,6 +141,7 @@ reviews), **Viewer** (read and download).
 
 ```
 backend/app/engine/   ingest.py (files → Parquet), detect.py (column roles), reconcile.py (matching),
+                      templates.py (report layouts), recon_templates.py (reconciliation templates),
                       export.py (Excel/CSV/JSON/PDF), normalize.py (status words, amount/date parsing)
 backend/app/routers/  the HTTP API (docs at http://127.0.0.1:8077/api/docs); settings.py = services + status names
 backend/app/db.py     MySQL schema + migrations
@@ -159,5 +184,6 @@ Every category count matched the planted differences exactly. Server memory peak
 ```
 .venv\Scripts\python.exe -m pytest backend\tests -q        (MySQL must be running; uses a throw-away DB)
 cd frontend && node e2e\flow.mjs shots                       (UI walkthrough with screenshots)
+cd frontend && node e2e\recon_templates.mjs shots-recon       (reconciliation templates on the example workbooks)
 .venv\Scripts\python.exe scripts\make_big.py --out D:\big   (two ~1 GB files with known differences)
 ```

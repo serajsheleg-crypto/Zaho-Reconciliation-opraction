@@ -11,7 +11,8 @@ detection a reconciliation runs), corrected by a person and saved; nothing in he
 A template can also say which rows of the file are transactions: only rows whose column holds one of some
 values ("Type is purchase", for a file that writes a purchase and its commission as two rows), and whether
 rows without a reference (totals, notes) are skipped. A header row picked by a person is kept too, for files
-whose headers detection does not find.
+whose headers detection does not find. When such a file writes a value the run needs on the other row (the
+commission is the Amount of the profit_customer row), a "part" reads that field from the companion row.
 """
 
 from __future__ import annotations
@@ -21,12 +22,14 @@ from pathlib import Path
 
 from .detect import ROLES, complete_roles, status_values, suggest_extras, suggest_keys
 from .duck import connect
+from .reconcile import PART_FIELDS, part_column
 from .normalize import CANONICAL_STATUSES, canonical_status, norm_text, q_ident, q_path, status_label_key
 
 FIELDS = (*ROLES, "time")              # key, amount, status, date, currency, fee + an optional time-of-day column
 MEANINGS = tuple(c for c in CANONICAL_STATUSES if c != "UNKNOWN")
 MAX_EXTRAS = 6
 MAX_FILTERS = 4
+MAX_PARTS = len(PART_FIELDS)
 VALUES_UP_TO = 30                      # columns with this many distinct values or fewer keep them, for status words
 
 TIME_WORDS = {norm_text(w) for w in (
@@ -85,6 +88,7 @@ def draft(parquet: Path, profile: dict, approved: list[dict] | None = None, shee
         "extras": [],
         "statuses": [],
         "filters": [],
+        "parts": [],
         "skip_no_key": True,
         "header_row": None,
         "columns": columns,
@@ -201,6 +205,25 @@ def clean(spec: dict) -> dict:
         filters.append({"column": col, "values": values[:VALUES_UP_TO * 2]})
     if len(filters) > MAX_FILTERS:
         raise TemplateError("template_too_many_filters")
+    parts: list[dict] = []
+    for p in spec.get("parts") or []:
+        field, col, by = p.get("field"), p.get("column"), p.get("by")
+        values = list(dict.fromkeys(str(v).strip()[:200] for v in p.get("values") or [] if str(v or "").strip()))
+        if not field or not col or not by or not values:
+            continue  # an unfinished companion field is dropped, like a filter with nothing ticked
+        if field not in PART_FIELDS:
+            raise TemplateError("template_part_field", str(field))
+        for c in (col, by):
+            if c not in names:
+                raise TemplateError("template_unknown_column", c)
+        if fields[field] or any(x["field"] == field for x in parts):
+            raise TemplateError("template_part_twice", field)
+        if not filters:
+            # Without a filter the companion rows would be read as transactions of their own too.
+            raise TemplateError("template_part_needs_filter", field)
+        parts.append({"field": field, "column": col, "by": by, "values": values[:VALUES_UP_TO * 2]})
+    if len(parts) > MAX_PARTS:
+        raise TemplateError("template_too_many_parts")
     header_row = spec.get("header_row")
     header_row = header_row if isinstance(header_row, int) and 1 <= header_row <= 200 else None
     style = lambda v: v if v in ("dot", "comma") else "dot"  # noqa: E731
@@ -213,6 +236,7 @@ def clean(spec: dict) -> dict:
         "extras": extras,
         "statuses": statuses,
         "filters": filters,
+        "parts": parts,
         "skip_no_key": bool(spec.get("skip_no_key")),
         "header_row": header_row,
         "columns": [{"name": c["name"], "examples": list(c.get("examples") or [])[:4],
@@ -268,6 +292,14 @@ def apply(profile: dict, spec: dict) -> tuple[dict, list[dict], list[dict]]:
             filters.append({"column": col, "values": list(f.get("values") or [])})
         else:
             missing.append({"field": "filter", "column": f.get("column")})
+    parts = []
+    for p in spec.get("parts") or []:
+        col, by = find(p.get("column")), find(p.get("by"))
+        if col and by:
+            parts.append({**p, "column": col, "by": by})
+            m[p["field"]] = part_column(p["field"])
+        else:
+            missing.append({"field": p["field"], "column": p.get("column") if not col else p.get("by")})
     used = {v for v in m.values() if v} | {e["column"] for e in extras}
     roles = profile.get("roles") or {}
     for miss in missing:
@@ -286,6 +318,7 @@ def apply(profile: dict, spec: dict) -> tuple[dict, list[dict], list[dict]]:
         date_formats=formats[:12],
         date_serial=bool(spec.get("date_serial") or (date or {}).get("date_serial")),
         filters=filters,
+        parts=parts,
         skip_no_key=bool(spec.get("skip_no_key")),
     )
     if m["time"] and not m["date"]:
@@ -385,5 +418,7 @@ def summary(spec: dict) -> dict:
         "sheet": spec.get("sheet"),
         "header_row": spec.get("header_row"),
         "filters": [{"column": f["column"], "values": f["values"]} for f in spec.get("filters") or []],
+        "parts": [{"field": p["field"], "column": p["column"], "by": p["by"], "values": p["values"]}
+                  for p in spec.get("parts") or []],
         "skip_no_key": bool(spec.get("skip_no_key")),
     }

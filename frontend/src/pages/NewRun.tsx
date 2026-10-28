@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { clsx } from "clsx";
 import {
-  ArrowLeftRight, Check, CheckCircle2, CircleHelp, Columns3, LayoutTemplate, Link2, ListFilter, Pencil, Play, Plus, RefreshCw,
-  Trash2,
+  ArrowLeftRight, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, Columns3, LayoutTemplate, Link2, ListFilter,
+  Pencil, Play, Plus, RefreshCw, SlidersHorizontal, Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n, type T } from "../lib/i18n";
 import { describeRows, fmtInt, fmtPct, templateName, timePart } from "../lib/format";
 import type {
-  AppliedTemplate, ApprovedStatus, CheckResult, CheckSide, Company, Dataset, Extra, Mapping, RoleKey, Rules, Service,
-  SideMap, StatusMode, StatusValue, Suggestion, Template,
+  AppliedTemplate, ApprovedStatus, CheckResult, CheckSide, Company, Dataset, Extra, Mapping, ReconTemplate, RoleKey, Rules,
+  Service, SideMap, StatusMode, StatusValue, Suggestion, Template,
 } from "../lib/types";
-import { errText, Notice, Switch, useAsync, useToast } from "../components/ui";
+import { Empty, ErrorBox, errText, Loading, Notice, Switch, useAsync, useToast } from "../components/ui";
+import { pairName } from "../components/PairTable";
+import TemplateRun from "./TemplateRun";
 import { FileSlot, type UploadConfig } from "../components/Upload";
 import { AmountStyle, DateFormat, ROLE_ICON } from "../components/formats";
 
@@ -41,7 +43,111 @@ function rolePatch(rules: Rules, role: RoleKey, on: boolean): Partial<Rules> {
 }
 const ROLES: RoleKey[] = ["key", "amount", "status", "date", "currency", "fee"];
 const CANON = ["SUCCESS", "FAILED", "PENDING", "CANCELLED", "REVERSED", "UNKNOWN"];
+
+/**
+ * A new reconciliation: with a reconciliation template (pick it, upload the two files, run) or set up by hand
+ * (the four steps below), for a new or one-off reconciliation. `?template=ID` opens a template directly.
+ */
 export default function NewRun() {
+  const { t, dir } = useI18n();
+  const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tid = params.get("template");
+  const manual = params.get("manual") === "1";
+  const cfg = useAsync(() => api<UploadConfig>("/api/config"), []);
+  const list = useAsync(() => api<{ items: ReconTemplate[] }>("/api/recon-templates"), []);
+  const chosen = useAsync(() => (tid ? api<ReconTemplate>(`/api/recon-templates/${tid}`) : Promise.resolve(null)), [tid]);
+  const choose = (next: Record<string, string>) => setParams(next);
+  const Next = dir === "rtl" ? ChevronLeft : ChevronRight;
+
+  if (manual) return <ManualRun onChange={() => choose({})} />;
+  if (tid) {
+    return (
+      <div className="page">
+        <div className="page-head">
+          <div>
+            <h1>{t("new.title")}</h1>
+          </div>
+        </div>
+        {chosen.error ? (
+          <ErrorBox error={chosen.error} retry={chosen.reload} />
+        ) : !chosen.data ? (
+          <Loading />
+        ) : (
+          <TemplateRun key={chosen.data.id} template={chosen.data} cfg={cfg.data} onChange={() => choose({})} />
+        )}
+      </div>
+    );
+  }
+  const active = (list.data?.items ?? []).filter((x) => x.is_active);
+  return (
+    <div className="page stack">
+      <div className="page-head" style={{ marginBottom: 0 }}>
+        <div>
+          <h1>{t("new.title")}</h1>
+          <p>{t("new.how")}</p>
+        </div>
+      </div>
+      <div className="choose-grid">
+        <section className="panel choose-card">
+          <div className="panel-head">
+            <div className="row tight" style={{ alignItems: "flex-start" }}>
+              <span className="company-mark a"><LayoutTemplate /></span>
+              <div>
+                <h2>{t("new.useTemplate")}</h2>
+                <p>{t("new.useTemplate.help")}</p>
+              </div>
+            </div>
+          </div>
+          {list.error && <div className="panel-body"><ErrorBox error={list.error} retry={list.reload} /></div>}
+          {list.loading && !list.data ? (
+            <Loading />
+          ) : active.length === 0 ? (
+            <Empty icon={<LayoutTemplate />} title={t("new.noReconTemplates")}>
+              {can("admin") && <Link className="btn primary" to="/recon-templates/new"><Plus />{t("new.addReconTemplates")}</Link>}
+            </Empty>
+          ) : (
+            <div className="tpl-pick">
+              {active.map((x) => (
+                <button key={x.id} className="tpl-option" onClick={() => choose({ template: String(x.id) })}>
+                  <span className="grow" style={{ minWidth: 0 }}>
+                    <b>{x.name}</b>
+                    <span className="row tight small">
+                      <span className="side-tag a">{x.label_a}</span>
+                      <ArrowLeftRight style={{ width: 14 }} className="faint" />
+                      <span className="side-tag b">{x.label_b}</span>
+                      <span className="muted">{t("rt.compares")}: {x.config.compare.map((id) => pairName(t, { id, label: id.slice(6) })).join(", ")}</span>
+                    </span>
+                  </span>
+                  <Next />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+        <section className="panel choose-card">
+          <div className="panel-head">
+            <div className="row tight" style={{ alignItems: "flex-start" }}>
+              <span className="company-mark b"><SlidersHorizontal /></span>
+              <div>
+                <h2>{t("new.manual")}</h2>
+                <p>{t("new.manual.help")}</p>
+              </div>
+            </div>
+          </div>
+          <div className="panel-body">
+            <button className="btn lg" onClick={() => choose({ manual: "1" })}>
+              {t("new.manual")}
+              <Next />
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ManualRun({ onChange }: { onChange: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const nav = useNavigate();
@@ -155,6 +261,7 @@ export default function NewRun() {
       <div className="page-head">
         <div>
           <h1>{t("new.title")}</h1>
+          <button className="btn ghost sm" style={{ paddingInline: 0 }} onClick={onChange}>{t("new.otherWay")}</button>
         </div>
         <Steps step={step} setStep={setStep} canFields={bothReady && !!mapping} />
       </div>

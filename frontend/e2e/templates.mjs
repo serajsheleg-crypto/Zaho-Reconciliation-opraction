@@ -97,7 +97,7 @@ await shot("t06-companies");
 
 // ---- reconcile the next day's files with the templates
 async function reconcile({ folder, ours, theirs, tplA, tplB, label, prefix }) {
-  await page.goto(`${base}/new`);
+  await page.goto(`${base}/new?manual=1`);
   await page.waitForSelector("#tpl-a optgroup", { state: "attached" });
   await page.locator("#tpl-a").selectOption({ label: tplA });
   await page.locator("#tpl-b").selectOption({ label: tplB });

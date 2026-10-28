@@ -18,6 +18,8 @@ const System = lazy(() => import("./pages/System"));
 const MatchingSettings = lazy(() => import("./pages/MatchingSettings"));
 const Companies = lazy(() => import("./pages/Companies"));
 const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
+const ReconTemplates = lazy(() => import("./pages/ReconTemplates"));
+const ReconTemplateEditor = lazy(() => import("./pages/ReconTemplateEditor"));
 const Account = lazy(() => import("./pages/Account"));
 
 function Guard({ children, admin, edit }: { children: ReactNode; admin?: boolean; edit?: boolean }) {
@@ -50,6 +52,8 @@ function Routed() {
         <Route path="settings" element={<Page><MatchingSettings /></Page>} />
         <Route path="companies" element={<Page><Companies /></Page>} />
         <Route path="companies/:cid/templates/:tid" element={<Guard admin><Page><TemplateEditor /></Page></Guard>} />
+        <Route path="recon-templates" element={<Page><ReconTemplates /></Page>} />
+        <Route path="recon-templates/:id" element={<Guard admin><Page><ReconTemplateEditor /></Page></Guard>} />
         <Route path="system" element={<Page><System /></Page>} />
         <Route path="account" element={<Page><Account /></Page>} />
         <Route path="*" element={<Navigate to="/" replace />} />

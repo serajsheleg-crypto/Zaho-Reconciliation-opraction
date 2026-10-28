@@ -93,18 +93,51 @@ def _num(v) -> float | None:
     return float(round(Decimal(v), 4)) if isinstance(v, Decimal) else float(v)
 
 
+PART_FIELDS = ("amount", "fee")
+
+
+def part_column(field: str) -> str:
+    """The column a field read from a companion row is given in the side's rows (see side_source)."""
+    return f"__part_{field}"
+
+
+def side_parts(m: dict) -> list[dict]:
+    """A side's complete companion-row fields: [{"field", "column", "by", "values"}]."""
+    return [p for p in m.get("parts") or []
+            if p.get("field") in PART_FIELDS and p.get("column") and p.get("by") and p.get("values")]
+
+
+def _in_values(column: str, values: list) -> str:
+    return f"lower(trim({q_ident(column)})) IN ({', '.join(q_str(str(v).strip().lower()) for v in values)})"
+
+
 def side_source(path: Path, m: dict) -> str:
     """One side's rows: the whole file, or only the rows its template keeps (`filters`: a column holding one of
-    some values, ignoring case and surrounding spaces; `skip_no_key`: rows with a blank reference)."""
+    some values, ignoring case and surrounding spaces; `skip_no_key`: rows with a blank reference).
+
+    `parts` read a field from a companion row: a file that writes a purchase and its commission as two rows with
+    the same reference ("Type" purchase / profit_customer) keeps the purchase rows and takes the fee from the
+    profit_customer row next to each one (the n-th of each kind per reference, so repeats still pair in order).
+    """
     src = f"read_parquet({q_path(path)})"
     conds = []
     for f in m.get("filters") or []:
-        values = ", ".join(q_str(str(v).strip().lower()) for v in f.get("values") or [])
-        if f.get("column") and values:
-            conds.append(f"lower(trim({q_ident(f['column'])})) IN ({values})")
+        if f.get("column") and f.get("values"):
+            conds.append(_in_values(f["column"], f["values"]))
     if m.get("skip_no_key") and m.get("key"):
         conds.append(f"NULLIF(trim({q_ident(m['key'])}), '') IS NOT NULL")
-    return f"(SELECT * FROM {src} WHERE {' AND '.join(conds)})" if conds else src
+    base = f"(SELECT * FROM {src} WHERE {' AND '.join(conds)})" if conds else src
+    parts = side_parts(m)
+    if not parts or not m.get("key"):
+        return base
+    k = q_ident(m["key"])
+    occ = f"row_number() OVER (PARTITION BY trim({k}) ORDER BY __row)"
+    cols, joins = ["m.* EXCLUDE (__occ)"], []
+    for i, p in enumerate(parts):
+        cols.append(f"p{i}.v AS {q_ident(part_column(p['field']))}")
+        joins.append(f"LEFT JOIN (SELECT trim({k}) AS k, {q_ident(p['column'])} AS v, {occ} AS occ FROM {src} "
+                     f"WHERE {_in_values(p['by'], p['values'])}) p{i} ON p{i}.k = trim(m.{k}) AND p{i}.occ = m.__occ")
+    return f"(SELECT {', '.join(cols)} FROM (SELECT *, {occ} AS __occ FROM {base} AS s) m {' '.join(joins)})"
 
 
 def is_filtered(m: dict) -> bool:
@@ -125,12 +158,13 @@ def side_examples(path: Path, m: dict, n: int = 4) -> dict[str, list[str]]:
 
 
 def skipped_rows(con, path: Path, m: dict) -> int:
-    """Rows of a side's file its filters leave out."""
+    """Rows of a side's file its filters leave out (a companion row a field was read from is not left out)."""
     if not is_filtered(m):
         return 0
-    total, kept = con.execute(f"SELECT (SELECT count(*) FROM read_parquet({q_path(path)})), "
-                              f"(SELECT count(*) FROM {side_source(path, m)})").fetchone()
-    return int(total - kept)
+    used = " + ".join(f"count({q_ident(part_column(p['field']))})" for p in side_parts(m)) or "0"
+    total, kept, parts = con.execute(f"SELECT (SELECT count(*) FROM read_parquet({q_path(path)})), "
+                                     f"count(*), {used} FROM {side_source(path, m)}").fetchone()
+    return int(total - kept - parts)
 
 
 def amount_signs(path: Path, m: dict, sample: int = 200_000) -> tuple[int, int]:
@@ -264,12 +298,17 @@ def validate(mapping: dict, cols_a: list[str], cols_b: list[str], rules: dict | 
         m = mapping.get(s) or {}
         if not m.get("key"):
             raise ConfigError(f"missing_key_{s}")
+        virtual = {part_column(p["field"]) for p in side_parts(m)}
         for role in (*ROLES, "time"):
-            if m.get(role) and m[role] not in cols:
+            if m.get(role) and m[role] not in cols and m[role] not in virtual:
                 raise ConfigError(f"unknown_column_{s}:{m[role]}")
         for f in m.get("filters") or []:
             if f.get("column") not in cols:
                 raise ConfigError(f"unknown_column_{s}:{f.get('column')}")
+        for p in side_parts(m):
+            for c in (p["column"], p["by"]):
+                if c not in cols:
+                    raise ConfigError(f"unknown_column_{s}:{c}")
     for ex in mapping.get("extras") or []:
         if ex.get("a") not in cols_a or ex.get("b") not in cols_b:
             raise ConfigError("unknown_extra_column")

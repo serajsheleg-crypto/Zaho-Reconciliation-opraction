@@ -2,11 +2,14 @@ export class ApiError extends Error {
   code: string;
   status: number;
   field?: string;
-  constructor(status: number, code: string, message: string, field?: string) {
+  /** Everything else the server said about the error (for example the problems found in two files). */
+  detail?: Record<string, unknown>;
+  constructor(status: number, code: string, message: string, field?: string, detail?: Record<string, unknown>) {
     super(message);
     this.status = status;
     this.code = code;
     this.field = field;
+    this.detail = detail;
   }
 }
 
@@ -32,7 +35,7 @@ async function toError(res: Response): Promise<ApiError> {
   }
   if (res.status === 401) window.dispatchEvent(new Event("zr:unauthorized"));
   if (detail.code === "db_unavailable") window.dispatchEvent(new Event("zr:db-down"));
-  return new ApiError(res.status, detail.code ?? "server_error", detail.message ?? res.statusText, detail.field);
+  return new ApiError(res.status, detail.code ?? "server_error", detail.message ?? res.statusText, detail.field, detail);
 }
 
 export async function api<T = unknown>(

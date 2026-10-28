@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Check, FileSpreadsheet, ListFilter, Plus, Refres
 import { api } from "../lib/api";
 import { useI18n, type T } from "../lib/i18n";
 import { fmtInt, timePart } from "../lib/format";
-import type { Company, Dataset, FieldKey, RowFilter, Template, TemplateSpec } from "../lib/types";
+import type { Company, Dataset, FieldKey, RowFilter, RowPart, Template, TemplateSpec } from "../lib/types";
 import { Empty, ErrorBox, Loading, Notice, Switch, errText, useAsync, useToast } from "../components/ui";
 import { FileSlot, type UploadConfig } from "../components/Upload";
 import { AmountStyle, DateFormat, ROLE_ICON } from "../components/formats";
@@ -14,10 +14,11 @@ const FIELDS: FieldKey[] = ["key", "amount", "status", "date", "time", "currency
 const MEANINGS = ["SUCCESS", "FAILED", "PENDING", "CANCELLED", "REVERSED"];
 const MAX_EXTRAS = 6;
 const MAX_FILTERS = 4;
+const PART_FIELDS: RowPart["field"][] = ["amount", "fee"];
 
 /** A status word; `manual` marks one typed by hand rather than found in the sample file. */
 type Word = TemplateSpec["statuses"][number] & { manual?: boolean };
-type Spec = Omit<TemplateSpec, "statuses"> & { statuses: Word[] };
+type Spec = Omit<TemplateSpec, "statuses" | "parts"> & { statuses: Word[]; parts: RowPart[] };
 
 /** A reference that repeats once per value of another column: the file writes each transaction as several rows. */
 interface SplitHint {
@@ -37,6 +38,7 @@ interface Draft {
 const withDefaults = (spec: TemplateSpec): Spec => ({
   ...spec,
   filters: spec.filters ?? [],
+  parts: spec.parts ?? [],
   skip_no_key: spec.skip_no_key ?? false,
   header_row: spec.header_row ?? null,
 });
@@ -76,6 +78,7 @@ function merge(draft: Spec, old: Spec | null): Spec {
     extras: old.extras.filter((e) => names.has(e.column) && !Object.values(fields).includes(e.column)),
     statuses: [...words.values()],
     filters: old.filters.filter((f) => names.has(f.column)),
+    parts: old.parts.filter((p) => names.has(p.column) && names.has(p.by)),
     skip_no_key: old.skip_no_key,
   };
 }
@@ -154,7 +157,10 @@ export default function TemplateEditor() {
       // One column, one field.
       if (col) for (const g of FIELDS) if (g !== f && fields[g] === col) fields[g] = null;
       if (!fields.date) fields.time = null;
-      const next: Spec = { ...s, fields, extras: col ? s.extras.filter((e) => e.column !== col) : s.extras };
+      const next: Spec = {
+        ...s, fields, extras: col ? s.extras.filter((e) => e.column !== col) : s.extras,
+        parts: col ? s.parts.filter((p) => p.field !== f) : s.parts,
+      };
       if (f === "status") next.statuses = [...wordsFor(s, col), ...s.statuses.filter((w) => w.manual)];
       return next;
     });
@@ -584,8 +590,87 @@ function RowsPanel({
             </div>
           );
         })}
+        <Parts t={t} spec={spec} update={update} />
         {preview && <KeptRows t={t} spec={spec} preview={preview} />}
       </div>
+    </div>
+  );
+}
+
+/** Fields read from the other row of a transaction written on two rows (the fee on the profit_customer row). */
+function Parts({ t, spec, update }: { t: T; spec: Spec; update: (fn: (s: Spec) => Spec) => void }) {
+  const byName = Object.fromEntries(spec.columns.map((c) => [c.name, c]));
+  const short = spec.columns.filter((c) => c.values?.length).map((c) => c.name);
+  const free = PART_FIELDS.filter((f) => !spec.parts.some((p) => p.field === f));
+  const filter = spec.filters.find((f) => f.values.length);
+  const setPart = (i: number, patch: Partial<RowPart>) =>
+    update((s) => {
+      const parts = s.parts.map((p, j) => (j === i ? { ...p, ...patch } : p));
+      // A field read from the other row is not also read from a column of the kept row.
+      const fields = { ...s.fields };
+      for (const p of parts) fields[p.field] = null;
+      return { ...s, parts, fields };
+    });
+  const add = () =>
+    update((s) => {
+      const field = free.find((f) => !s.fields[f]) ?? free[0];
+      const by = filter?.column ?? short[0];
+      const others = (byName[by]?.values ?? []).map((v) => v.raw).filter((v) => !filter?.values.some((x) => wordKey(x) === wordKey(v)));
+      const part: RowPart = { field, column: s.fields.amount ?? s.columns[0]?.name ?? "", by, values: others.slice(0, 1) };
+      return { ...s, parts: [...s.parts, part], fields: { ...s.fields, [field]: null } };
+    });
+  if (!spec.parts.length && !filter) return null;
+  return (
+    <div className="stack" style={{ gap: 10, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+      <div className="row between">
+        <span>
+          <b>{t("tp.parts")}</b>
+          <span className="small muted" style={{ display: "block" }}>{filter ? t("tp.parts.help") : t("tp.parts.needFilter")}</span>
+        </span>
+        <button className="btn sm" disabled={!filter || free.length === 0 || short.length === 0} onClick={add}>
+          <Plus />
+          {t("tp.parts.add")}
+        </button>
+      </div>
+      {spec.parts.map((p, i) => {
+        const values = byName[p.by]?.values ?? [];
+        const isOn = (raw: string) => p.values.some((x) => wordKey(x) === wordKey(raw));
+        return (
+          <div className="filter-row" key={i}>
+            <div className="row" style={{ flexWrap: "wrap" }}>
+              <span className="small muted nowrap">{t("tp.parts.read")}</span>
+              <select className="select" style={{ width: "auto" }} value={p.field} aria-label={t("tp.parts.read")}
+                onChange={(e) => setPart(i, { field: e.target.value as RowPart["field"] })}>
+                {[p.field, ...free].map((f) => <option key={f} value={f}>{t(`role.${f}`)}</option>)}
+              </select>
+              <span className="small muted nowrap">{t("tp.parts.from")}</span>
+              <select className="select" style={{ width: "auto", minWidth: 140 }} value={p.column} aria-label={t("tp.parts.from")}
+                onChange={(e) => setPart(i, { column: e.target.value })}>
+                {spec.columns.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+              <span className="small muted nowrap">{t("tp.parts.where")}</span>
+              <select className="select" style={{ width: "auto", minWidth: 120 }} value={p.by} aria-label={t("tp.parts.where")}
+                onChange={(e) => setPart(i, { by: e.target.value, values: [] })}>
+                {[...new Set([p.by, ...short])].map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <span className="small muted nowrap grow">{t("tp.parts.is")}</span>
+              <button className="btn ghost icon" aria-label={t("delete")}
+                onClick={() => update((s) => ({ ...s, parts: s.parts.filter((_, j) => j !== i) }))}>
+                <Trash2 />
+              </button>
+            </div>
+            <div className="chips">
+              {values.map((v) => (
+                <button key={v.raw} className={clsx("chip", isOn(v.raw) && "on")} aria-pressed={isOn(v.raw)}
+                  onClick={() => setPart(i, { values: isOn(v.raw) ? p.values.filter((x) => wordKey(x) !== wordKey(v.raw)) : [...p.values, v.raw] })}>
+                  {isOn(v.raw) && <Check style={{ width: 14, height: 14 }} />}
+                  <bdi>{v.raw}</bdi> <em>{fmtInt(v.count)}</em>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

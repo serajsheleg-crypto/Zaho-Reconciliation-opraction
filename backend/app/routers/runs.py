@@ -116,6 +116,13 @@ class RowFilter(BaseModel):
     values: list[str] = Field(min_length=1, max_length=60)
 
 
+class RowPart(BaseModel):
+    field: str = Field(pattern="^(amount|fee)$")
+    column: str
+    by: str
+    values: list[str] = Field(min_length=1, max_length=60)
+
+
 class SideMap(BaseModel):
     key: str
     amount: str | None = None
@@ -130,6 +137,8 @@ class SideMap(BaseModel):
     date_serial: bool = False
     # From the side's template: only rows whose column holds one of the values, and skip rows without a reference.
     filters: list[RowFilter] = Field(default_factory=list, max_length=4)
+    # A field read from a companion row of the same reference (the fee on the profit_customer row).
+    parts: list[RowPart] = Field(default_factory=list, max_length=2)
     skip_no_key: bool = False
 
 
@@ -181,6 +190,9 @@ class RulesIn(BaseModel):
     templates: dict[str, TemplateRef | None] | None = None
     # Only kept from a recorded run, for a template deleted since ("Run again" then uses the words it had).
     template_statuses: dict[str, list[StatusWord]] | None = None
+    # A run started from a reconciliation template keeps a full copy of it (see recon_templates.py), so
+    # "Run again" and the results stay readable whatever happens to the template later.
+    recon_template: dict | None = None
 
 
 class RunIn(BaseModel):
@@ -224,24 +236,27 @@ def resolve_rules(rules_in: RulesIn) -> dict:
     return rules
 
 
-def _start(body: RunIn, request: Request, user: dict) -> int:
+def _start(body: RunIn, request: Request, user: dict, rules: dict | None = None) -> int:
+    """Validate and queue a run. `rules`, when given, are already resolved (a reconciliation template's)."""
     da, dbs = get_ready(body.dataset_a), get_ready(body.dataset_b)
     cols_a = [c["name"] for c in db.from_json(da["meta"], {})["profile"]["columns"]]
     cols_b = [c["name"] for c in db.from_json(dbs["meta"], {})["profile"]["columns"]]
     mapping = body.mapping.model_dump()
-    rules = resolve_rules(body.rules)
+    rules = rules or resolve_rules(body.rules)
     try:
         validate(mapping, cols_a, cols_b, rules)
     except ConfigError as exc:
         raise fail(400, "bad_mapping", str(exc))
     config = {"mapping": mapping, "rules": rules}
+    recon = rules.get("recon_template") or None
     run_id = db.execute(
-        "INSERT INTO runs (name, status, label_a, label_b, dataset_a, dataset_b, source_a_name, source_b_name, config, "
-        "created_by) VALUES (:n, 'queued', :la, :lb, :da, :db, :sa, :sb, :c, :u)",
+        "INSERT INTO runs (name, status, label_a, label_b, dataset_a, dataset_b, recon_template_id, source_a_name, "
+        "source_b_name, config, created_by) VALUES (:n, 'queued', :la, :lb, :da, :db, :rt, :sa, :sb, :c, :u)",
         n=body.name.strip(), la=body.label_a.strip(), lb=body.label_b.strip(), da=da["id"], db=dbs["id"],
-        sa=da["name"], sb=dbs["name"], c=db.to_json(config), u=user["id"],
+        rt=recon.get("id") if recon else None, sa=da["name"], sb=dbs["name"], c=db.to_json(config), u=user["id"],
     )
-    audit(request, user, "run.start", "run", run_id, {"name": body.name, "a": da["name"], "b": dbs["name"]})
+    audit(request, user, "run.start", "run", run_id, {"name": body.name, "a": da["name"], "b": dbs["name"],
+                                                      **({"template": recon.get("name")} if recon else {})})
     jobs.submit(jobs.execute_run, run_id)
     return run_id
 

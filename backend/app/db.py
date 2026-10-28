@@ -325,6 +325,30 @@ MIGRATIONS: list[list[str]] = [
         ) {TABLE_OPTS}""",
         "INSERT IGNORE INTO companies (name, is_ours) VALUES ('Zaho', 1)",
     ],
+    [  # 5: reconciliation templates (one recurring reconciliation: our layout + the partner's layout + how to
+       # compare them), and the template each run was started from
+        f"""CREATE TABLE IF NOT EXISTS recon_templates (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(120) NOT NULL UNIQUE,
+            description VARCHAR(1000) NULL,
+            layout_a INT NOT NULL,
+            layout_b INT NOT NULL,
+            label_a VARCHAR(80) NOT NULL,
+            label_b VARCHAR(80) NOT NULL,
+            config LONGTEXT NOT NULL,
+            version INT NOT NULL DEFAULT 1,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_by INT NULL,
+            updated_by INT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NULL,
+            CONSTRAINT fk_recon_layout_a FOREIGN KEY (layout_a) REFERENCES company_templates(id),
+            CONSTRAINT fk_recon_layout_b FOREIGN KEY (layout_b) REFERENCES company_templates(id)
+        ) {TABLE_OPTS}""",
+        # No foreign key: a run keeps a full copy of its template, so deleting the template never touches it.
+        "ALTER TABLE runs ADD COLUMN IF NOT EXISTS recon_template_id INT NULL AFTER dataset_b, "
+        "ADD INDEX IF NOT EXISTS ix_runs_recon_template (recon_template_id)",
+    ],
 ]
 
 

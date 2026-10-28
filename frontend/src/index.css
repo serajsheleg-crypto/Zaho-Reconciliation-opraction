@@ -2848,3 +2848,182 @@ table.data tr.skipped-row td:last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------- reconciliation templates */
+.rt-list {
+  display: grid;
+  gap: 14px;
+}
+.rt-card {
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+.rt-card.off {
+  opacity: 0.7;
+}
+.rt-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.rt-card-head h2 {
+  margin: 0;
+}
+.rt-card-head p {
+  margin: 4px 0 0;
+}
+.rt-reports {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rt-reports > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rt-reports svg {
+  width: 16px;
+}
+.rt-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.rt-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.rt-facts dt svg {
+  width: 14px;
+}
+.rt-facts dd {
+  margin: 4px 0 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.rt-ledgers {
+  grid-template-columns: 1fr 1fr;
+}
+.pair-table td {
+  vertical-align: top;
+}
+.pair-table tr.pair-key td {
+  background: var(--brand-soft);
+}
+.pair-table tr.pair-one td,
+.pair-table tr.pair-off td:not(:last-child) {
+  color: var(--ink-3);
+}
+.pair-src {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.use-key {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+.use-key svg {
+  width: 15px;
+}
+.use-key .small {
+  font-weight: 400;
+}
+.choose-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 18px;
+  align-items: start;
+}
+.choose-card .panel-head h2 {
+  margin: 0;
+}
+.tpl-pick {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+.tpl-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.tpl-option:last-child {
+  border-bottom: 0;
+}
+.tpl-option:hover,
+.tpl-option:focus-visible {
+  background: var(--surface-2);
+}
+.tpl-option b {
+  display: block;
+  margin-bottom: 6px;
+}
+.tpl-option > svg {
+  width: 18px;
+  color: var(--ink-3);
+  flex: none;
+}
+.tpl-chosen {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.needs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.needs code {
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: var(--r-s);
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+@media (max-width: 900px) {
+  .choose-grid,
+  .rt-ledgers,
+  .rt-facts {
+    grid-template-columns: 1fr;
+  }
+  .rt-card-head,
+  .tpl-chosen {
+    flex-wrap: wrap;
+  }
+}
+.tpl-chosen > .grow {
+  flex: 1 1 260px;
+}
+.run-line {
+  flex-wrap: wrap;
+}
+.run-line > .field {
+  flex: 1 1 260px;
+}

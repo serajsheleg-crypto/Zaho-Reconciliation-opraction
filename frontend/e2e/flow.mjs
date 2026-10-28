@@ -59,7 +59,7 @@ for (const [label, meaning] of [["Approved", "SUCCESS"], ["Declined", "FAILED"],
 }
 await shot("02d-settings");
 
-await page.goto(`${base}/new`);
+await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".dropzone");
 await shot("03-new-empty", false);
 // ZR_OURS / ZR_PARTNER may be absolute paths to other files.
@@ -130,7 +130,7 @@ await page.locator("#results tbody tr").nth(2).click();
 await page.waitForSelector(".drawer .compare");
 await shot("16-drawer-ar-dark", false);
 await page.keyboard.press("Escape");
-await page.goto(`${base}/new`);
+await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".dropzone");
 await shot("17-new-ar-dark", false);
 await page.goto(`${base}/settings`);
@@ -144,7 +144,7 @@ await page.goto(runUrl);
 await page.waitForSelector(".hero-figure");
 await shot("18-run-phone-ar");
 await page.evaluate(() => localStorage.setItem("zr.lang", "en"));
-await page.goto(`${base}/new`);
+await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".dropzone");
 await shot("19-new-phone-en");
 

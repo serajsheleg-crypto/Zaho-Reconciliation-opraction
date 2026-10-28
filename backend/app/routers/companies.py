@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import shutil
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import db, jobs
@@ -57,6 +57,20 @@ def get_template(tid: int) -> dict | None:
         row["company"] = company.get("name")
         row["is_ours"] = bool(company.get("is_ours"))
     return row
+
+
+def used_by(template_ids: list[int]) -> list[dict]:
+    """Reconciliation templates built on any of these layouts."""
+    if not template_ids:
+        return []
+    return db.fetch_all("SELECT id, name, layout_a, layout_b, config FROM recon_templates "
+                        "WHERE layout_a IN :ids OR layout_b IN :ids ORDER BY name", ids=list(template_ids))
+
+
+def _in_use(rows: list[dict]) -> HTTPException:
+    names = ", ".join(r["name"] for r in rows)
+    return fail(409, "layout_in_use", f"Used by the reconciliation template(s): {names}. Change or delete them first.",
+                templates=[{"id": r["id"], "name": r["name"]} for r in rows])
 
 
 def template_ref(t: dict) -> dict:
@@ -116,6 +130,9 @@ def delete_company(cid: int, request: Request, user: dict = Depends(admin_only))
     company = get_company(cid)
     if not company:
         raise fail(404, "company_not_found", "Company not found.")
+    ids = [r["id"] for r in db.fetch_all("SELECT id FROM company_templates WHERE company_id=:c", c=cid)]
+    if rows := used_by(ids):
+        raise _in_use(rows)
     db.execute("DELETE FROM companies WHERE id=:id", id=cid)  # its templates go with it
     audit(request, user, "company.delete", "company", cid, {"name": company["name"]})
     return {"ok": True}
@@ -217,6 +234,7 @@ def update_template(tid: int, body: TemplateIn, request: Request, user: dict = D
         columns, sheet = old["spec"].get("columns") or [], old["spec"].get("sheet")
         header_row = old["spec"].get("header_row")
     spec = _clean({**body.spec, "columns": columns, "sheet": sheet, "header_row": header_row})
+    _check_dependents(tid, spec)
     db.execute("UPDATE company_templates SET name=:n, spec=:s, sample_name=:sn, sample_rows=:sr, is_active=:a, "
                "updated_at=NOW() WHERE id=:id", n=name, s=db.to_json(spec), sn=sample_name, sr=sample_rows,
                a=int(body.is_active), id=tid)
@@ -226,11 +244,32 @@ def update_template(tid: int, body: TemplateIn, request: Request, user: dict = D
     return get_template(tid)
 
 
+def _check_dependents(tid: int, spec: dict) -> None:
+    """A layout edit must not take away a field a reconciliation template built on it compares."""
+    from ..engine import recon_templates as rt
+
+    broken = []
+    for r in used_by([tid]):
+        other = get_template(r["layout_b"] if r["layout_a"] == tid else r["layout_a"])
+        sa, sb = (spec, other["spec"]) if r["layout_a"] == tid else (other["spec"], spec)
+        try:
+            rt.clean_config(db.from_json(r["config"], {}) or {}, sa, sb)
+        except rt.ReconTemplateError as exc:
+            broken.append({**r, "detail": exc.detail or exc.code})
+    if broken:
+        names = ", ".join(f"{r['name']} ({r['detail']})" for r in broken)
+        raise fail(409, "layout_breaks_templates",
+                   f"This change removes a field these reconciliation templates compare: {names}.",
+                   templates=[{"id": r["id"], "name": r["name"], "field": r["detail"]} for r in broken])
+
+
 @router.delete("/templates/{tid}")
 def delete_template(tid: int, request: Request, user: dict = Depends(admin_only)) -> dict:
     t = get_template(tid)
     if not t:
         raise fail(404, "template_not_found", "Template not found.")
+    if rows := used_by([tid]):
+        raise _in_use(rows)
     db.execute("DELETE FROM company_templates WHERE id=:id", id=tid)
     audit(request, user, "template.delete", "template", tid, {"name": t["name"], "company": t["company"]})
     return {"ok": True}
