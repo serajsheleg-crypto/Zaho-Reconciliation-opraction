@@ -317,6 +317,33 @@ def resolve_side(profile: dict, spec: dict, needed: set[str], extras: list[str])
     return {"mapping": m, "extras": named, "errors": errors, "warnings": warnings, "unexpected": unexpected}
 
 
+def required_columns(spec: dict, config: dict) -> list[str]:
+    """The headers one side's file must have for this template (a side_spec): the key, the compared fields and
+    the fallback date, row filters and companion-row columns, and the compared added pairs."""
+    needed = needed_fields(config)
+    fields = spec.get("fields") or {}
+    cols = [fields[f] for f in needed if fields.get(f)]
+    cols += [p[k] for p in spec.get("parts") or [] if p["field"] in needed for k in ("column", "by")]
+    cols += [f["column"] for f in spec.get("filters") or []]
+    names = {c[6:] for c in config["compare"] if c.startswith("extra:")}
+    cols += [e["column"] for e in spec.get("extras") or [] if e["name"] in names]
+    return list(dict.fromkeys(cols))
+
+
+def find_header_row(head: list[list], columns: list[str]) -> int | None:
+    """The row (1 = the first line) among a file's first lines that holds every one of these headers, compared
+    ignoring case, spaces and separators. A report with a title and a summary table above its transactions
+    (Libyana's monthly report) is then read from the row the layout's columns are on, not from the summary."""
+    want = {_header_key(c) for c in columns}
+    if not want:
+        return None
+    for i, row in enumerate(head or []):
+        have = {_header_key(str(v)) for v in row or [] if v not in (None, "")}
+        if want <= have:
+            return i + 1
+    return None
+
+
 def needed_fields(config: dict) -> set[str]:
     needed = {"key"} | {c for c in config["compare"] if c in COMPARABLE}
     if config["rules"].get("fallback_match"):

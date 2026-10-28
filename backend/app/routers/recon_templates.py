@@ -198,7 +198,8 @@ def _reread(ds: dict, spec: dict) -> dict | None:
 def _meta(ds: dict) -> dict:
     meta = db.from_json(ds["meta"], {}) or {}
     return {"file_type": ds.get("file_type"), "sheet": meta.get("sheet"), "sheets": meta.get("sheets"),
-            "header_row": meta.get("header_row"), "profile": meta.get("profile") or {}}
+            "header_row": meta.get("header_row"), "header_auto": meta.get("header_auto", True),
+            "head": meta.get("head") or [], "profile": meta.get("profile") or {}}
 
 
 def plan(t: dict, body: FilesIn) -> dict:
@@ -217,6 +218,16 @@ def plan(t: dict, body: FilesIn) -> dict:
     if reread["a"] or reread["b"]:
         return {"errors": [], "warnings": [], "reread": reread}
     built = rt.build_run(ma["profile"], la["spec"], mb["profile"], lb["spec"], config)
+    # Headers found automatically but without this template's columns: when another of the file's first lines
+    # holds them all (a report with a title and a summary table above its transactions), read it from there.
+    for s, meta, layout in (("a", ma, la), ("b", mb, lb)):
+        missing = any(e["side"] == s and e["code"] == "column_missing" for e in built["errors"])
+        if missing and meta["header_auto"] and meta["file_type"] in ("excel", "csv"):
+            row = rt.find_header_row(meta["head"], rt.required_columns(rt.side_spec(layout["spec"], config, s), config))
+            if row and row != meta["header_row"]:
+                reread[s] = {"header_row": row}
+    if reread["a"] or reread["b"]:
+        return {"errors": [], "warnings": [], "reread": reread}
     errors, check = list(built["errors"]), None
     if built["swapped"]:
         errors = [{"code": "files_swapped"}]

@@ -681,3 +681,58 @@ def test_mapping_is_saved_reloaded_and_used_by_runs(client, files):
     run_id = client.post(f"/api/recon-templates/{tid}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]},
                          headers=H).json()["id"]
     assert wait(client, f"/api/runs/{run_id}")["config"]["mapping"]["b"]["fee"] == "Zaho commission"
+
+
+
+# --------------------------------------------------------------------------- a report with a summary above its table
+
+def _libyana_monthly(path: Path) -> Path:
+    """Libyana's monthly report: a title, a summary table, a blank line, then the sales table on row 7, with the
+    same columns as the sample the layout was learned from (made-up values, references from the fixtures)."""
+    import xlsxwriter
+
+    wb = xlsxwriter.Workbook(str(path))
+    ws = wb.add_worksheet("Sheet1")
+    ws.write(0, 0, "Zaho · September 2026")
+    ws.write(1, 0, "Zaho Production User")
+    ws.write_row(3, 0, ["Transactions", "Customer paid", "GECOL value", "Added fee", "1% fee", "Remaining after 1%",
+                        "Libyana's % of remaining", "Libyana's share", "Zaho commission", "Zaho keeps", "Difference",
+                        "Demand: Zaho pays Libyana"])
+    ws.write_row(4, 0, [2, 74, 70, 4, 0.74, 3.26, 0.75, 2.45, 0.81, 2.45, 0, 72.45])
+    ws.write_row(6, 0, ["Date & time", "Transaction ID", "Token", "Meter number", "Package value", "Customer paid",
+                        "1% fee", "Libyana's share", "Zaho commission", "Reference ID"])
+    ws.write_row(7, 0, ["2026-10-26 09:00", "260901014014039531", "2280", "0268000865181", 50, 52, 0.52, 0, 1.48,
+                        "664e3207-cfa6-428c-b341-b02bb71a6f1d"])
+    ws.write_row(8, 0, ["2026-10-26 10:00", "260901101749030784", "1360", "0268005040574", 20, 22, 0.22, 0, 1.78,
+                        "45f32939-195e-4f29-91cd-732c6e5a7faa"])
+    wb.close()
+    return path
+
+
+def test_the_header_row_holding_the_layouts_columns_is_found(layouts, tmp_path):
+    lib = layouts["Libyana - Khales sales"]
+    cfg = recon_config("Khales — Libyana (خالص)", layouts["Hawli - Khales"], lib)
+    src = _libyana_monthly(tmp_path / "monthly.xlsx")
+    meta = ingest_file(src, tmp_path / "auto.parquet", kind="excel")
+    assert meta["header_row"] == 4  # detection alone takes the summary table
+    need = rt.required_columns(rt.side_spec(lib, cfg, "b"), cfg)
+    assert set(need) == {"Reference ID", "Package value", "Zaho commission"}
+    assert rt.find_header_row(meta["head"], need) == 7
+    assert rt.find_header_row(meta["head"], ["Reference ID", "Not there"]) is None
+
+
+def test_a_report_with_a_summary_above_is_read_from_the_layouts_header(client, files, tmp_path):
+    """Through the API: the run screen is told to read the file again from row 7, then the files fit."""
+    login(client)
+    khales = next(t for t in client.get("/api/recon-templates").json()["items"] if t["name"].startswith("Khales"))
+    a = upload(client, files / "خالص-حولي.xlsx")
+    b = upload(client, _libyana_monthly(tmp_path / "Copy of Zaho 9-2026.xlsx"))
+    url = f"/api/recon-templates/{khales['id']}/prepare"
+    first = client.post(url, json={"dataset_a": a["id"], "dataset_b": b["id"]}, headers=H).json()
+    assert first["reread"] == {"a": None, "b": {"header_row": 7}} and first["errors"] == []
+    r = client.post(f"/api/datasets/{b['id']}/sheet", json={"header_row": 7}, headers=H)
+    assert r.status_code == 200, r.text
+    b = wait(client, f"/api/datasets/{b['id']}")
+    second = client.post(url, json={"dataset_a": a["id"], "dataset_b": b["id"]}, headers=H).json()
+    assert second["errors"] == [] and second["mapping"]["b"]["key"] == "Reference ID"
+    assert second["check"]["sides"]["b"]["rows"] == 2
