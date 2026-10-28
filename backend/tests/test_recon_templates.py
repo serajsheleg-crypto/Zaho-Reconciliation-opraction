@@ -91,7 +91,7 @@ def _used_columns(spec: dict, compare: list[str]) -> set[str]:
     for f in compare:
         src = rt.field_source(spec, f)
         used |= {src["column"]} | ({src["by"]} if "by" in src else set())
-    return used | {f["column"] for f in spec.get("filters") or []}
+    return used
 
 
 @pytest.mark.parametrize("name", list(RECONS))
@@ -104,16 +104,16 @@ def test_templates_compare_exactly_the_red_columns(layouts, name):
 
 
 def test_matching_key_and_compared_fields_are_separate(layouts):
-    config = recon_config("Wallet top-ups — Moamalat (معاملات)", layouts["Hawli transactions export"],
-                          layouts["AMS transactions report"])
+    config = recon_config("Transactions — Moamalat (معاملات)", layouts["Hawli - Transactions"],
+                          layouts["Moamalat - AMS transactions"])
     assert config["compare"] == ["amount"]  # the reference pairs records; it is not a "compared field"
-    pairs = {p["id"]: p for p in rt.pairs(layouts["Hawli transactions export"], layouts["AMS transactions report"])}
+    pairs = {p["id"]: p for p in rt.pairs(layouts["Hawli - Transactions"], layouts["Moamalat - AMS transactions"])}
     assert pairs["key"]["a"] == {"column": "ProviderReference"} and pairs["key"]["b"] == {"column": "URN"}
     assert pairs["fee"]["b"] is None  # our fee has no counterpart: it can never be compared
 
 
 def test_clean_config_rejects_what_cannot_be_compared(layouts):
-    ours, ams = layouts["Hawli transactions export"], layouts["AMS transactions report"]
+    ours, ams = layouts["Hawli - Transactions"], layouts["Moamalat - AMS transactions"]
     for compare, code in ((["fee"], "recon_not_comparable"), (["nope"], "recon_not_comparable"),
                           ([], "recon_nothing_compared")):
         with pytest.raises(rt.ReconTemplateError) as err:
@@ -173,8 +173,8 @@ def test_excel_float_noise_does_not_make_a_mismatch(files, layouts, tmp_path):
 
 
 def test_a_missing_column_stops_the_run(files, layouts, tmp_path):
-    ours, ams = layouts["Hawli transactions export"], layouts["AMS transactions report"]
-    config = recon_config("Wallet top-ups — Moamalat (معاملات)", ours, ams)
+    ours, ams = layouts["Hawli - Transactions"], layouts["Moamalat - AMS transactions"]
+    config = recon_config("Transactions — Moamalat (معاملات)", ours, ams)
     _, fa = _prepare(files / "معاملات-حولي.xlsx", tmp_path / "a.parquet")
     _, fb = _prepare(_csv(tmp_path / "b.csv", ["Date", "Reference", "Amount"], [["x", "TXN1-2", "55"]]), tmp_path / "b.parquet")
     built = rt.build_run(fa, ours, fb, ams, config)
@@ -183,7 +183,7 @@ def test_a_missing_column_stops_the_run(files, layouts, tmp_path):
 
 
 def test_headers_are_found_ignoring_case_and_spacing_but_never_ambiguously(layouts):
-    ams = layouts["AMS transactions report"]
+    ams = layouts["Moamalat - AMS transactions"]
     needed = {"key", "amount"}
     loose = rt.resolve_side({"columns": [{"name": "urn"}, {"name": " AMOUNT"}]}, ams, needed, [])
     assert loose["errors"] == [] and (loose["mapping"]["key"], loose["mapping"]["amount"]) == ("urn", " AMOUNT")
@@ -192,16 +192,16 @@ def test_headers_are_found_ignoring_case_and_spacing_but_never_ambiguously(layou
 
 
 def test_columns_not_needed_are_dropped_with_a_warning(layouts):
-    ours = layouts["Hawli transactions export"]
-    cols = [{"name": n} for n in ("ProviderReference", "Amount", "Fee", "Created", "Currency")]  # no Status
+    ours = layouts["Hawli - Transactions"]
+    cols = [{"name": n} for n in ("ServiceCode", "ProviderReference", "Amount", "Fee", "Created", "Currency")]  # no Status
     side = rt.resolve_side({"columns": cols}, ours, {"key", "amount"}, [])
     assert side["errors"] == [] and side["mapping"]["status"] is None
     assert side["warnings"] == [{"code": "column_missing", "field": "status", "column": "Status"}]
 
 
 def test_swapped_files_are_recognised(files, layouts, tmp_path):
-    ours, ams = layouts["Hawli transactions export"], layouts["AMS transactions report"]
-    config = recon_config("Wallet top-ups — Moamalat (معاملات)", ours, ams)
+    ours, ams = layouts["Hawli - Transactions"], layouts["Moamalat - AMS transactions"]
+    config = recon_config("Transactions — Moamalat (معاملات)", ours, ams)
     _, fa = _prepare(files / "معاملات-حولي.xlsx", tmp_path / "a.parquet")
     _, fb = _prepare(files / "معاملات-المزود.xlsx", tmp_path / "b.parquet")
     assert rt.build_run(fb, ours, fa, ams, config)["swapped"] is True
@@ -209,10 +209,10 @@ def test_swapped_files_are_recognised(files, layouts, tmp_path):
 
 
 def test_a_file_without_usable_data_is_refused(layouts, tmp_path):
-    ours, ams = layouts["Hawli transactions export"], layouts["AMS transactions report"]
-    config = recon_config("Wallet top-ups — Moamalat (معاملات)", ours, ams)
-    pa, fa = _prepare(_csv(tmp_path / "a.csv", ["ProviderReference", "Amount", "Fee", "Status"],
-                           [["T1", "10", "0.1", "ناجحة"]]), tmp_path / "a.parquet")
+    ours, ams = layouts["Hawli - Transactions"], layouts["Moamalat - AMS transactions"]
+    config = recon_config("Transactions — Moamalat (معاملات)", ours, ams)
+    pa, fa = _prepare(_csv(tmp_path / "a.csv", ["ServiceCode", "ProviderReference", "Amount", "Fee", "Status"],
+                           [["TopUp", "T1", "10", "0.1", "ناجحة"]]), tmp_path / "a.parquet")
     def problems(rows: list[list[str]]) -> set[tuple[str, str]]:
         pb, fb = _prepare(_csv(tmp_path / "b.csv", ["URN", "Amount"], rows), tmp_path / "b.parquet")
         built = rt.build_run(fa, ours, fb, ams, config)
@@ -227,10 +227,11 @@ def test_a_file_without_usable_data_is_refused(layouts, tmp_path):
 
 def test_a_purchase_without_its_profit_row_is_a_fee_mismatch(layouts, tmp_path):
     """A missing companion row is never read as a zero fee or skipped: the fee is absent and reported."""
-    ours, dogoon = layouts["Hawli transactions export"], layouts["Dogoon transactions"]
+    ours, dogoon = layouts["Hawli - Local Cards"], layouts["Dogoon - Transactions"]
     config = recon_config("Local cards — Dogoon (كروت محلية)", ours, dogoon)
-    pa, fa = _prepare(_csv(tmp_path / "a.csv", ["ProviderReference", "Amount", "Fee", "Status", "Created", "Currency"],
-                           [["R1", "10", "0.35", "ناجحة", "2026-10-26 10:00", "LYD"]]), tmp_path / "a.parquet")
+    pa, fa = _prepare(_csv(tmp_path / "a.csv", ["ServiceCode", "ProviderReference", "Amount", "Fee", "Status", "Created",
+                                                "Currency"],
+                           [["LocalEvoucher", "R1", "10", "0.35", "ناجحة", "2026-10-26 10:00", "LYD"]]), tmp_path / "a.parquet")
     pb, fb = _prepare(_csv(tmp_path / "b.csv", ["Date", "Type", "Reference", "Amount", "Currency"],
                            [["2026-10-26 10:00", "purchase", "R1", "-10", "LYD"]]), tmp_path / "b.parquet")
     built = rt.build_run(fa, ours, fb, dogoon, config)
@@ -258,7 +259,7 @@ def test_red_columns_are_read_from_the_real_workbooks():
 def test_real_example_workbooks(tmp_path):
     specs = {name: t["spec"] for name, t in build_layouts(DEFAULT_DATA, APPROVED).items()}
     expected = {  # the example files: top-ups and local cards are the same transactions on both sides,
-        "Wallet top-ups — Moamalat (معاملات)": {"MATCHED": 7},  # Khales shows different ones on each side
+        "Transactions — Moamalat (معاملات)": {"MATCHED": 7},  # Khales shows different ones on each side
         "Local cards — Dogoon (كروت محلية)": {"MATCHED": 5},
         "Khales — Libyana (خالص)": {"MISSING_IN_B": 2, "MISSING_IN_A": 2},
     }
@@ -288,7 +289,7 @@ def _layout(client, company: str, is_ours: bool, name: str, sample: Path) -> dic
     return r.json()
 
 
-TOP = "Wallet top-ups — Moamalat (معاملات)"
+TOP = "Transactions — Moamalat (معاملات)"
 
 
 def _body(name: str, la: dict, lb: dict, /, **kw) -> dict:
@@ -299,20 +300,21 @@ def _body(name: str, la: dict, lb: dict, /, **kw) -> dict:
 
 def test_recon_templates_api(client, files):
     login(client)
-    ours = _layout(client, "Zaho", True, "Hawli transactions export", files / "معاملات-حولي.xlsx")
-    ams = _layout(client, "Moamalat", False, "AMS transactions report", files / "معاملات-المزود.xlsx")
-    dogoon = _layout(client, "Dogoon", False, "Dogoon transactions", files / "كروت محلية-دوجون.xlsx")
+    ours = _layout(client, "Zaho", True, "Hawli - Transactions", files / "معاملات-حولي.xlsx")
+    ams = _layout(client, "Moamalat", False, "Moamalat - AMS transactions", files / "معاملات-المزود.xlsx")
+    dogoon = _layout(client, "Dogoon", False, "Dogoon - Transactions", files / "كروت محلية-دوجون.xlsx")
+    cards_ours = _layout(client, "Zaho", True, "Hawli - Local Cards", files / "كروت محلية-حولي.xlsx")
     assert dogoon["spec"]["parts"][0]["field"] == "fee"
 
     # ---- create, list, read
-    top = client.post("/api/recon-templates", json=_body("Wallet top-ups — Moamalat (معاملات)", ours, ams), headers=H)
+    top = client.post("/api/recon-templates", json=_body("Transactions — Moamalat (معاملات)", ours, ams), headers=H)
     assert top.status_code == 200, top.text
     top = top.json()
     assert top["version"] == 1 and top["config"]["compare"] == ["amount"] and top["runs"] == 0
     assert top["layouts"]["b"]["company"] == "Moamalat"
-    cards = client.post("/api/recon-templates", json=_body("Local cards — Dogoon (كروت محلية)", ours, dogoon), headers=H).json()
+    cards = client.post("/api/recon-templates", json=_body("Local cards — Dogoon (كروت محلية)", cards_ours, dogoon), headers=H).json()
     assert cards["config"]["rules"]["amount_absolute"] is True
-    dup = client.post("/api/recon-templates", json=_body("Wallet top-ups — Moamalat (معاملات)", ours, ams), headers=H)
+    dup = client.post("/api/recon-templates", json=_body("Transactions — Moamalat (معاملات)", ours, ams), headers=H)
     assert dup.status_code == 409 and dup.json()["detail"]["code"] == "recon_template_exists"
     bad = client.post("/api/recon-templates", json=_body(TOP, ours, ams, name="x", compare=["fee"]), headers=H)
     assert bad.status_code == 400 and bad.json()["detail"]["code"] == "recon_not_comparable"
@@ -345,7 +347,7 @@ def test_recon_templates_api(client, files):
     run = wait(client, f"/api/runs/{r.json()['id']}")
     assert run["status"] == "completed", run["error"]
     assert {k: v["count"] for k, v in run["summary"]["categories"].items() if v["count"]} == \
-        recon_fixtures.EXPECTED["Wallet top-ups — Moamalat (معاملات)"]
+        recon_fixtures.EXPECTED["Transactions — Moamalat (معاملات)"]
     assert (run["label_a"], run["label_b"], run["recon_template_id"]) == ("Zaho", "Moamalat", top["id"])
     snap = run["config"]["rules"]["recon_template"]
     assert snap["name"] == top["name"] and snap["version"] == 1 and snap["config"]["compare"] == ["amount"]
@@ -365,16 +367,16 @@ def test_recon_templates_api(client, files):
 
     # ---- edit: one template's change touches nothing else, and a stale editor cannot overwrite it
     edited = client.patch(f"/api/recon-templates/{top['id']}",
-                          json=_body("Wallet top-ups — Moamalat (معاملات)", ours, ams, version=1,
+                          json=_body("Transactions — Moamalat (معاملات)", ours, ams, version=1,
                                      rules={"amount_tolerance": 0.5}), headers=H)
     assert edited.status_code == 200 and edited.json()["version"] == 2
     assert edited.json()["config"]["rules"]["amount_tolerance"] == 0.5
     stale = client.patch(f"/api/recon-templates/{top['id']}",
-                         json=_body("Wallet top-ups — Moamalat (معاملات)", ours, ams, version=1), headers=H)
+                         json=_body("Transactions — Moamalat (معاملات)", ours, ams, version=1), headers=H)
     assert stale.status_code == 409 and stale.json()["detail"]["code"] == "recon_template_changed"
     assert client.get(f"/api/recon-templates/{cards['id']}").json()["config"] == cards["config"]
     clash = client.patch(f"/api/recon-templates/{cards['id']}",
-                         json=_body("Local cards — Dogoon (كروت محلية)", ours, dogoon, name=top["name"]), headers=H)
+                         json=_body("Local cards — Dogoon (كروت محلية)", cards_ours, dogoon, name=top["name"]), headers=H)
     assert clash.status_code == 409 and clash.json()["detail"]["code"] == "recon_template_exists"
     # The old run still says what it compared, with the version it used.
     old = client.get(f"/api/runs/{run['id']}").json()
@@ -478,12 +480,46 @@ def test_each_template_runs_its_own_pairing_and_keeps_its_exceptions(client, fil
     assert detail["exception"]["id"] == one["id"] and detail["exception"]["review_status"] == "resolved"
 
 
-def test_another_services_export_is_flagged_before_the_run(client, files):
-    """The Hawli exports all look alike: our local-cards export in the Khales template fits the columns, but no
-    reference is shared, which is said before the run (every record would otherwise show as missing)."""
+def test_another_services_export_is_refused(client, files):
+    """The Hawli reports share their columns, so only the rows tell them apart: our local-cards report uploaded to
+    the Khales template keeps no Khales row and the run is refused, naming the report type it expected."""
     login(client)
     khales = next(t for t in client.get("/api/recon-templates").json()["items"] if t["name"].startswith("Khales"))
     a, b = upload(client, files / "كروت محلية-حولي.xlsx"), upload(client, files / "خالص-ليبيانا.xlsx")
     prep = client.post(f"/api/recon-templates/{khales['id']}/prepare", json={"dataset_a": a["id"], "dataset_b": b["id"]},
                        headers=H).json()
-    assert prep["errors"] == [] and {"code": "no_shared_references"} in prep["warnings"]
+    assert prep["errors"] == [{"code": "rows_filtered_out", "side": "a", "detail": "ServiceCode = LocalKhales"}]
+    r = client.post(f"/api/recon-templates/{khales['id']}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]}, headers=H)
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "files_do_not_fit"
+
+
+def test_one_company_keeps_independent_layouts(client, files):
+    """Zaho has three Hawli layouts, each its own row with its own name, sample and rules; changing one leaves the
+    others and the templates built on them alone, and each template reads exactly the layouts it names."""
+    login(client)
+    zaho = next(c for c in client.get("/api/companies").json()["items"] if c["name"] == "Zaho")
+    hawli = {t["name"]: client.get(f"/api/templates/{t['id']}").json() for t in zaho["templates"] if t["name"].startswith("Hawli")}
+    assert set(hawli) == {"Hawli - Khales", "Hawli - Local Cards", "Hawli - Transactions"}
+    assert len({t["id"] for t in hawli.values()}) == 3
+    assert {n: t["sample_name"] for n, t in hawli.items()} == {
+        "Hawli - Khales": "خالص-حولي.xlsx", "Hawli - Local Cards": "كروت محلية-حولي.xlsx",
+        "Hawli - Transactions": "معاملات-حولي.xlsx"}
+    assert {n: t["spec"]["filters"][0]["values"] for n, t in hawli.items()} == {
+        "Hawli - Khales": ["LocalKhales"], "Hawli - Local Cards": ["LocalEvoucher"], "Hawli - Transactions": ["TopUp"]}
+    # Every saved template reads the two layouts its definition names.
+    templates = client.get("/api/recon-templates").json()["items"]
+    for name, r in RECONS.items():
+        for t in [x for x in templates if x["name"].startswith(name)]:
+            assert (t["layouts"]["a"]["name"], t["layouts"]["b"]["name"]) == (r["layout_a"], r["layout_b"]), t["name"]
+    # The layout page lists which templates use each layout.
+    used = {t["name"]: [u["name"] for u in t["used_by"]] for t in zaho["templates"]}
+    assert any(u.startswith("Khales") for u in used["Hawli - Khales"])
+    assert not any(u.startswith("Khales") for u in used["Hawli - Local Cards"])
+    # Editing one layout touches no other.
+    k = hawli["Hawli - Khales"]
+    before = {n: t["spec"] for n, t in hawli.items() if n != "Hawli - Khales"}
+    spec = {**k["spec"], "extras": [{"name": "Channel", "column": "Channel"}]}
+    assert client.patch(f"/api/templates/{k['id']}", json={"name": k["name"], "spec": spec}, headers=H).status_code == 200
+    after = {t["name"]: client.get(f"/api/templates/{t['id']}").json()["spec"] for t in zaho["templates"]
+             if t["name"] in before}
+    assert after == before

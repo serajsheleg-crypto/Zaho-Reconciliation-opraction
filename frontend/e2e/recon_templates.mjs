@@ -1,7 +1,7 @@
 // Reconciliation templates, end to end in the real app, with screenshots:
 //   node e2e/recon_templates.mjs <outDir> [baseUrl] [examplesDir]
 // Needs the example templates saved first: python scripts/example_templates.py
-// Creates a template through the editor, runs "Local cards — Dogoon" and "Wallet top-ups — Moamalat" on the
+// Creates a template through the editor, runs "Local cards — Dogoon" and "Transactions — Moamalat" on the
 // example workbooks by picking the template and uploading two files (no column mapping), checks the counts,
 // shows the error for files uploaded the wrong way round, and takes the Arabic screens.
 import { chromium } from "playwright";
@@ -59,8 +59,8 @@ await shot("01-recon-templates");
 const uiName = `UI test ${Date.now() % 100000}`;
 await page.goto(`${base}/recon-templates/new`);
 await page.fill("#rt-name", uiName);
-await page.selectOption("#rt-layout-a", { label: "Hawli transactions export" });
-await page.selectOption("#rt-layout-b", { label: "Dogoon transactions" });
+await page.selectOption("#rt-layout-a", { label: "Hawli - Local Cards" });
+await page.selectOption("#rt-layout-b", { label: "Dogoon - Transactions" });
 await page.waitForSelector(".pair-table");
 check((await page.inputValue("#rt-label-b")) === "Dogoon", "the partner's name is filled from the layout's company");
 const ticked = await page.locator(".pair-table input[type=checkbox]:checked").count();
@@ -100,12 +100,18 @@ check(run.status === "completed" && run.matched === 5 && run.exceptions === 0, `
 check(run.summary.compared.fee === true && run.summary.compared.date === false, "fee compared, date not compared");
 
 // ---- Wallet top-ups, files the wrong way round: refused with a clear message
-await runTemplate("Wallet top-ups — Moamalat", "معاملات-المزود.xlsx", "معاملات-حولي.xlsx", "06-run-topups-swapped");
+await runTemplate("Transactions — Moamalat", "معاملات-المزود.xlsx", "معاملات-حولي.xlsx", "06-run-topups-swapped");
 check(await page.locator(".notice.bad", { hasText: "wrong way round" }).waitFor({ timeout: 10000 }).then(() => true, () => false), "swapped files are refused");
 check(await page.locator("button:has-text('Run reconciliation')").isDisabled(), "the run button stays off");
 
+// ---- another service's Hawli report: same columns, but no row of the expected service -> refused
+await runTemplate("Khales — Libyana", "كروت محلية-حولي.xlsx", "خالص-ليبيانا.xlsx", "06b-run-khales-wrong-hawli");
+check(await page.locator(".notice.bad", { hasText: "ServiceCode = LocalKhales" }).waitFor({ timeout: 10000 }).then(() => true, () => false),
+  "the Local Cards Hawli report is refused by the Khales template");
+check(await page.locator("button:has-text('Run reconciliation')").isDisabled(), "the run button stays off for the wrong report");
+
 // ---- and the right way round
-await runTemplate("Wallet top-ups — Moamalat", "معاملات-حولي.xlsx", "معاملات-المزود.xlsx", "07-run-topups-ready");
+await runTemplate("Transactions — Moamalat", "معاملات-حولي.xlsx", "معاملات-المزود.xlsx", "07-run-topups-ready");
 await page.click("button:has-text('Run reconciliation')");
 await page.waitForURL(/\/runs\/\d+$/);
 await page.waitForTimeout(3000);

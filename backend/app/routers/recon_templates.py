@@ -229,7 +229,14 @@ def plan(t: dict, body: FilesIn) -> dict:
         check = check_inputs(path_a=parquet_path(da["id"]), path_b=parquet_path(dbs["id"]),
                              mapping=built["mapping"], rules=rules)
         errors += [{**e, "code": f"config_{e['code']}"} for e in check["errors"]]
-        errors += rt.data_errors(check, config)
+        for e in rt.data_errors(check, config):
+            m = built["mapping"][e["side"]]
+            if e["code"] == "no_rows" and check["sides"][e["side"]]["skipped"] and m.get("filters"):
+                # The layout keeps only some rows (one service of the Hawli report): none of this file's rows are
+                # of that kind, so it is most likely another report type uploaded by mistake.
+                e = {**e, "code": "rows_filtered_out",
+                     "detail": " · ".join(f"{f['column']} = {' / '.join(f['values'])}" for f in m["filters"])}
+            errors.append(e)
         if not errors and not shared_references(parquet_path(da["id"]), built["mapping"]["a"], parquet_path(dbs["id"]),
                                                 built["mapping"]["b"], rules):
             # Possible (two different days), but also what uploading another service's export looks like:

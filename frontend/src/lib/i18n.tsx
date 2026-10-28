@@ -762,6 +762,8 @@ const en = {
   "co.col.usedBy": "Used by",
   "co.usedBy.none": "No reconciliation template yet",
   "new.w.no_shared_references": "The two files have no reference in common: every record would show as missing. Check that both are the reports of this service and the same period.",
+  "new.e.rows_filtered_out": "{side}: no row of this file is of the report type this template expects ({detail}). Check that it is the right report, for example the Hawli report of this service.",
+  "new.rowsPart": "{field} read from {column} of the row where {by} is {values}",
 };
 
 type Dict = typeof en;
@@ -1506,6 +1508,8 @@ const ar: Record<TKey, string> = {
   "co.col.usedBy": "يستخدمه",
   "co.usedBy.none": "لا يستخدمه أي قالب مطابقة بعد",
   "new.w.no_shared_references": "لا يوجد أي مرجع مشترك بين الملفين: ستظهر كل السجلات مفقودة. تأكد أن الملفين تقريرا هذه الخدمة وللفترة نفسها.",
+  "new.e.rows_filtered_out": "{side}: لا يوجد في هذا الملف أي سطر من نوع التقرير الذي يتوقعه هذا القالب ({detail}). تأكد أنه التقرير الصحيح، مثل تقرير حولي لهذه الخدمة.",
+  "new.rowsPart": "{field} من {column} في السطر الذي فيه {by} = {values}",
 };
 
 const DICTS: Record<Lang, Record<string, string>> = { en, ar };

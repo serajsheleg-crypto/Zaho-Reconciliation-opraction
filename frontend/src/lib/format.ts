@@ -27,9 +27,15 @@ export function templateName(ref: { company?: string | null; name?: string | nul
 /** Which rows a template keeps, in a sentence: "Only rows where Type is purchase · rows without a reference skipped". */
 export function describeRows(
   t: (k: string, v?: Record<string, string | number>) => string,
-  s: { filters?: { column: string; values: string[] }[]; skip_no_key?: boolean },
+  s: {
+    filters?: { column: string; values: string[] }[];
+    parts?: { field: string; column: string; by: string; values: string[] }[];
+    skip_no_key?: boolean;
+  },
 ): string | null {
   const parts = (s.filters ?? []).map((f) => t("new.rowsOnly", { column: f.column, values: f.values.join(" / ") }));
+  for (const p of s.parts ?? [])
+    parts.push(t("new.rowsPart", { field: t(`role.${p.field}`), column: p.column, by: p.by, values: p.values.join(" / ") }));
   if (s.skip_no_key) parts.push(t("new.rowsNoKey"));
   const text = parts.join(" · ");
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : null;

@@ -55,6 +55,11 @@ A reconciliation done again and again ("OnePay Reconciliation") is set up **once
    changes an old run or "Run again".
 
 **Set up manually** (the four steps below) is still there for new or one-off reconciliations.
+Every kind of report has its own named layout, ours included: `Hawli - Khales`, `Hawli - Local Cards` and
+`Hawli - Transactions` share the Hawli export's columns, but each keeps only its service's rows (`ServiceCode`), so
+uploading another service's Hawli report is refused before the run. Partners: `Libyana - Khales sales`,
+`Dogoon - Transactions`, `Moamalat - AMS transactions`.
+
 `scripts\example_templates.py` saves the three reconciliations of the example workbooks (top-ups/Moamalat, local
 cards/Dogoon, Khales/Libyana); their compared fields are exactly the red columns of the examples.
 

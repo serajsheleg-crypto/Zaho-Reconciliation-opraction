@@ -25,7 +25,7 @@ HAWLI_HEADERS = [
 ]
 
 EXPECTED = {
-    "Wallet top-ups — Moamalat (معاملات)": {"MATCHED": 5, "AMOUNT_MISMATCH": 1, "MISSING_IN_B": 1, "MISSING_IN_A": 1},
+    "Transactions — Moamalat (معاملات)": {"MATCHED": 5, "AMOUNT_MISMATCH": 1, "MISSING_IN_B": 1, "MISSING_IN_A": 1},
     "Local cards — Dogoon (كروت محلية)": {"MATCHED": 4, "FEE_MISMATCH": 1, "AMOUNT_MISMATCH": 1, "MISSING_IN_B": 1,
                                           "MISSING_IN_A": 1, "DUPLICATE_B": 1},
     "Khales — Libyana (خالص)": {"MATCHED": 2, "FEE_MISMATCH": 1, "MULTIPLE_MISMATCH": 1, "MISSING_IN_B": 1},

@@ -10,9 +10,11 @@ nothing about any of these partners.
 
 Read from the workbooks (red header = the columns compared):
 
-- Hawli (حوّلي) is our system: the same 30-column export for every service, a "# TotalCount: n" line under the
-  headers. ProviderReference is the partner's reference; Amount and Fee are red where they are compared.
-- Wallet top-ups (معاملات): our ProviderReference + Amount against the provider's AMS report URN + Amount.
+- Hawli (حوّلي) is our system. Each service has its own Hawli report (Khales, Local Cards, Transactions), saved as
+  its own named layout from its own sample file. They share the 30-column format (a "# TotalCount: n" line under
+  the headers; ProviderReference = the partner's reference; Amount and Fee red where they are compared), and each
+  layout keeps only its service's rows (ServiceCode), so the wrong service's export cannot be reconciled by mistake.
+- Transactions (معاملات, wallet top-ups): our ProviderReference + Amount against the provider's AMS report URN + Amount.
   Our Fee is not red there and the AMS report has no matching fee, so the fee is not compared.
 - Local cards (كروت محلية): Dogoon writes every sale as two rows with the same Reference, told apart by Type
   (red): "purchase" holds the amount as a debit (-10) and "profit_customer" holds our commission (0.35). Our
@@ -21,7 +23,9 @@ Read from the workbooks (red header = the columns compared):
   Libyana's Meter number is red too but our export has no meter number column: it is not compared (an open
   question for the business, see the README).
 
-Companies, layouts and templates that already exist are left alone unless --replace is given.
+Companies, layouts and templates that already exist are left alone unless --replace is given. Names saved by an
+earlier version (one shared "Hawli transactions export" layout) are renamed in place, and a template whose
+layouts changed gets a new version pointing at them; runs keep the copy of the template they were made with.
 """
 
 from __future__ import annotations
@@ -50,55 +54,76 @@ NOT_COMPARED = {("خالص-ليبيانا.xlsx", "Meter number"): "our export ha
 
 NONE = {f: None for f in ("key", "amount", "status", "date", "time", "currency", "fee")}
 
-# Report layouts (company templates): which column holds each field, learned from one sample file.
+# Report layouts: one named layout per kind of report, each learned from its own sample file. Our three Hawli
+# reports have the same columns, but each is its own report type: its layout keeps only the rows of its service
+# (ServiceCode), so uploading another service's export is refused instead of showing every record as missing.
+HAWLI_FIELDS = {**NONE, "key": "ProviderReference", "amount": "Amount", "fee": "Fee", "status": "Status",
+                "date": "Created", "currency": "Currency"}
 LAYOUTS = {
-    "Hawli transactions export": {
-        "company": "Zaho", "is_ours": True, "sample": "معاملات-حولي.xlsx",
-        "fields": {**NONE, "key": "ProviderReference", "amount": "Amount", "fee": "Fee", "status": "Status",
-                   "date": "Created", "currency": "Currency"},
+    "Hawli - Khales": {
+        "company": "Zaho", "is_ours": True, "sample": "خالص-حولي.xlsx", "fields": HAWLI_FIELDS,
+        "filters": [{"column": "ServiceCode", "values": ["LocalKhales"]}],
         "skip_no_key": True,  # the "# TotalCount: n" line under the headers
     },
-    "AMS transactions report": {
+    "Hawli - Local Cards": {
+        "company": "Zaho", "is_ours": True, "sample": "كروت محلية-حولي.xlsx", "fields": HAWLI_FIELDS,
+        "filters": [{"column": "ServiceCode", "values": ["LocalEvoucher"]}],
+        "skip_no_key": True,
+    },
+    "Hawli - Transactions": {
+        "company": "Zaho", "is_ours": True, "sample": "معاملات-حولي.xlsx", "fields": HAWLI_FIELDS,
+        "filters": [{"column": "ServiceCode", "values": ["TopUp"]}],
+        "skip_no_key": True,
+    },
+    "Moamalat - AMS transactions": {
         "company": "Moamalat", "sample": "معاملات-المزود.xlsx",
         "fields": {**NONE, "key": "URN", "amount": "Amount"},
     },
-    "Dogoon transactions": {
+    "Dogoon - Transactions": {
         "company": "Dogoon", "sample": "كروت محلية-دوجون.xlsx",
         "fields": {**NONE, "key": "Reference", "amount": "Amount", "date": "Date", "currency": "Currency"},
         "filters": [{"column": "Type", "values": ["purchase"]}],
         "parts": [{"field": "fee", "column": "Amount", "by": "Type", "values": ["profit_customer"]}],
     },
-    "Libyana Khales sales": {
+    "Libyana - Khales sales": {
         "company": "Libyana", "sample": "خالص-ليبيانا.xlsx",
         "fields": {**NONE, "key": "Reference ID", "amount": "Package value", "fee": "Zaho commission",
                    "date": "Date & time"},
     },
 }
+# Names an earlier version of this script saved (one shared Hawli layout): kept rows are renamed, not duplicated.
+OLD_LAYOUT_NAMES = {
+    "Hawli transactions export": "Hawli - Transactions",
+    "AMS transactions report": "Moamalat - AMS transactions",
+    "Dogoon transactions": "Dogoon - Transactions",
+    "Libyana Khales sales": "Libyana - Khales sales",
+}
 
 # Reconciliation templates: two layouts and what is compared between them.
 RECONS = {
-    "Wallet top-ups — Moamalat (معاملات)": {
-        "layout_a": "Hawli transactions export", "layout_b": "AMS transactions report",
-        "label_a": "Zaho", "label_b": "Moamalat", "compare": ["amount"], "rules": {},
-        "files": ("معاملات-حولي.xlsx", "معاملات-المزود.xlsx"),
-        "description": "Hawli top-ups against the provider's AMS transactions report: reference (ProviderReference = "
-                       "URN) and amount.",
-    },
-    "Local cards — Dogoon (كروت محلية)": {
-        "layout_a": "Hawli transactions export", "layout_b": "Dogoon transactions",
-        "label_a": "Zaho", "label_b": "Dogoon", "compare": ["amount", "fee"], "rules": {"amount_absolute": True},
-        "files": ("كروت محلية-حولي.xlsx", "كروت محلية-دوجون.xlsx"),
-        "description": "Hawli local card sales against Dogoon's transactions: ProviderReference = Reference; Amount = "
-                       "the purchase row (a debit, compared without its sign); Fee = the profit_customer row.",
-    },
     "Khales — Libyana (خالص)": {
-        "layout_a": "Hawli transactions export", "layout_b": "Libyana Khales sales",
+        "layout_a": "Hawli - Khales", "layout_b": "Libyana - Khales sales",
         "label_a": "Zaho", "label_b": "Libyana", "compare": ["amount", "fee"], "rules": {},
         "files": ("خالص-حولي.xlsx", "خالص-ليبيانا.xlsx"),
         "description": "Hawli Khales payments against Libyana's sales: ProviderReference = Reference ID, Amount = "
                        "Package value, Fee = Zaho commission.",
     },
+    "Local cards — Dogoon (كروت محلية)": {
+        "layout_a": "Hawli - Local Cards", "layout_b": "Dogoon - Transactions",
+        "label_a": "Zaho", "label_b": "Dogoon", "compare": ["amount", "fee"], "rules": {"amount_absolute": True},
+        "files": ("كروت محلية-حولي.xlsx", "كروت محلية-دوجون.xlsx"),
+        "description": "Hawli local card sales against Dogoon's transactions: ProviderReference = Reference; Amount = "
+                       "the purchase row (a debit, compared without its sign); Fee = the profit_customer row.",
+    },
+    "Transactions — Moamalat (معاملات)": {
+        "layout_a": "Hawli - Transactions", "layout_b": "Moamalat - AMS transactions",
+        "label_a": "Zaho", "label_b": "Moamalat", "compare": ["amount"], "rules": {},
+        "files": ("معاملات-حولي.xlsx", "معاملات-المزود.xlsx"),
+        "description": "Hawli wallet top-ups against the provider's AMS transactions report: reference "
+                       "(ProviderReference = URN) and amount.",
+    },
 }
+OLD_RECON_NAMES = {"Wallet top-ups — Moamalat (معاملات)": "Transactions — Moamalat (معاملات)"}
 
 
 def build_layouts(data_dir: Path, approved: list[dict]) -> dict[str, dict]:
@@ -145,6 +170,7 @@ def main() -> None:
     if missing:
         sys.exit(f"Sample files missing in {data_dir}: {', '.join(missing)}")
     db.init_schema()
+    renamed = _rename_old(db)
     ids, specs = {}, {}
     for name, t in build_layouts(data_dir, approved_statuses()).items():
         company = db.fetch_one("SELECT id FROM companies WHERE name=:n", n=t["company"])
@@ -152,7 +178,7 @@ def main() -> None:
             "INSERT INTO companies (name, is_ours) VALUES (:n, :o)", n=t["company"], o=int(t["is_ours"]))
         old = db.fetch_one("SELECT id, spec FROM company_templates WHERE company_id=:c AND name=:n", c=cid, n=name)
         params = dict(s=db.to_json(t["spec"]), sn=t["sample_name"], sr=t["sample_rows"])
-        if old and not args.replace:
+        if old and not args.replace and name not in renamed:
             ids[name], specs[name] = old["id"], db.from_json(old["spec"], {})
             print(f"[skip] layout {t['company']} / {name} already exists")
             continue
@@ -167,19 +193,41 @@ def main() -> None:
         print(f"[ok] layout {t['company']} / {name}  <- {t['sample_name']}")
     for name, r in RECONS.items():
         config = recon_config(name, specs[r["layout_a"]], specs[r["layout_b"]])
-        old = db.fetch_one("SELECT id FROM recon_templates WHERE name=:n", n=name)
+        old = db.fetch_one("SELECT id, layout_a, layout_b FROM recon_templates WHERE name=:n", n=name)
         params = dict(d=r["description"], a=ids[r["layout_a"]], b=ids[r["layout_b"]], la=r["label_a"],
                       lb=r["label_b"], c=db.to_json(config))
-        if old and not args.replace:
+        moved = bool(old) and (old["layout_a"], old["layout_b"]) != (params["a"], params["b"])
+        if old and not (args.replace or moved):
             print(f"[skip] reconciliation template {name} already exists")
         elif old:
+            # A new version: runs made with the old one keep their own copy of it, untouched.
             db.execute("UPDATE recon_templates SET description=:d, layout_a=:a, layout_b=:b, label_a=:la, label_b=:lb, "
                        "config=:c, version=version+1, updated_at=NOW() WHERE id=:id", id=old["id"], **params)
-            print(f"[ok] reconciliation template {name} (updated)")
+            print(f"[ok] reconciliation template {name} now reads {r['layout_a']} + {r['layout_b']} (new version)")
         else:
             db.execute("INSERT INTO recon_templates (name, description, layout_a, layout_b, label_a, label_b, config) "
                        "VALUES (:n, :d, :a, :b, :la, :lb, :c)", n=name, **params)
             print(f"[ok] reconciliation template {name}")
+
+
+def _rename_old(db) -> set[str]:
+    """Give layouts and templates saved under this script's earlier names their current names (same rows, so
+    every reference to them stays; runs keep the names they recorded). Returns the layouts renamed: they also
+    take their current settings (the Hawli service filter)."""
+    renamed = set()
+    for old, new in OLD_LAYOUT_NAMES.items():
+        row = db.fetch_one("SELECT t.id, t.company_id FROM company_templates t WHERE t.name=:n", n=old)
+        if row and not db.scalar("SELECT COUNT(*) FROM company_templates WHERE company_id=:c AND name=:n",
+                                 c=row["company_id"], n=new):
+            db.execute("UPDATE company_templates SET name=:n, updated_at=NOW() WHERE id=:id", n=new, id=row["id"])
+            renamed.add(new)
+            print(f"[ok] layout renamed: {old} -> {new}")
+    for old, new in OLD_RECON_NAMES.items():
+        row = db.fetch_one("SELECT id FROM recon_templates WHERE name=:n", n=old)
+        if row and not db.scalar("SELECT COUNT(*) FROM recon_templates WHERE name=:n", n=new):
+            db.execute("UPDATE recon_templates SET name=:n, updated_at=NOW() WHERE id=:id", n=new, id=row["id"])
+            print(f"[ok] reconciliation template renamed: {old} -> {new}")
+    return renamed
 
 
 if __name__ == "__main__":
