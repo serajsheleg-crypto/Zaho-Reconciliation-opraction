@@ -1,0 +1,17 @@
+{
+  "rows_a": 3000,
+  "rows_b": 2904,
+  "categories": {
+    "MULTIPLE_MISMATCH": 4,
+    "STATUS_MISMATCH": 28,
+    "AMOUNT_MISMATCH": 12,
+    "MISSING_IN_B": 110,
+    "MISSING_IN_A": 10,
+    "DUPLICATE_B": 4,
+    "DATE_MISMATCH": 6,
+    "REF_MISMATCH": 9,
+    "MATCHED": 2831
+  },
+  "critical_missing_in_b": 15,
+  "low_missing_in_b": 95
+}

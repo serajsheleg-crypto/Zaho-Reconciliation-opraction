@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 606" width="820" height="606" font-family="Segoe UI, Tahoma, Arial, sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#55606E"/></marker></defs>
+<rect width="820" height="606" fill="#FFFFFF"/>
+<rect x="260" y="14" width="300" height="40" rx="8" fill="#142F4E" stroke="#142F4E"/>
+<text x="410.0" y="38.9" text-anchor="middle" direction="rtl" font-size="14" fill="#FFFFFF" font-weight="700">كل سجل من الملفين يظهر مرة واحدة</text>
+<rect x="490" y="84" width="300" height="36" rx="8" fill="#0F766E" stroke="#0F766E"/>
+<text x="640.0" y="106.9" text-anchor="middle" direction="rtl" font-size="14" fill="#FFFFFF" font-weight="700">سجل بلا زوج في الملف الآخر</text>
+<rect x="70" y="84" width="300" height="36" rx="8" fill="#0F766E" stroke="#0F766E"/>
+<text x="220.0" y="106.9" text-anchor="middle" direction="rtl" font-size="14" fill="#FFFFFF" font-weight="700">زوج (سجل من كل ملف)</text>
+<line x1="410" y1="54" x2="640" y2="82" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="410" y1="54" x2="220" y2="82" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="600" y="140" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="700.0" y="161.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >المرجع فارغ؟</text>
+<line x1="600" y1="157" x2="578" y2="157" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="589" y="151" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="440" y="142" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="508.0" y="161.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">بدون مرجع</text>
+<line x1="700" y1="174" x2="700" y2="190" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="712" y="186" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="600" y="192" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="700.0" y="213.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >المرجع مكرر أو موجود هناك؟</text>
+<line x1="600" y1="209" x2="578" y2="209" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="589" y="203" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="440" y="194" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="508.0" y="213.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">مكررة</text>
+<line x1="700" y1="226" x2="700" y2="242" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="712" y="238" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="600" y="244" width="200" height="34" rx="8" fill="#FDEEEC" stroke="#B42318"/>
+<text x="700.0" y="265.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#B42318" font-weight="700">غير موجودة في الملف الآخر</text>
+<rect x="180" y="140" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="161.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >حقلان أو أكثر مختلفان؟</text>
+<line x1="180" y1="157" x2="158" y2="157" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="151" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="142" width="136" height="30" rx="8" fill="#FDEEEC" stroke="#B42318"/>
+<text x="88.0" y="161.2" text-anchor="middle" direction="rtl" font-size="12" fill="#B42318" font-weight="700">اختلافات متعددة</text>
+<line x1="280" y1="174" x2="280" y2="190" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="186" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="192" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="213.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >الحالة مختلفة؟</text>
+<line x1="180" y1="209" x2="158" y2="209" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="203" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="194" width="136" height="30" rx="8" fill="#FDEEEC" stroke="#B42318"/>
+<text x="88.0" y="213.2" text-anchor="middle" direction="rtl" font-size="12" fill="#B42318" font-weight="700">اختلاف في الحالة</text>
+<line x1="280" y1="226" x2="280" y2="242" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="238" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="244" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="265.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >المبلغ مختلف؟</text>
+<line x1="180" y1="261" x2="158" y2="261" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="255" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="246" width="136" height="30" rx="8" fill="#FDEEEC" stroke="#B42318"/>
+<text x="88.0" y="265.2" text-anchor="middle" direction="rtl" font-size="12" fill="#B42318" font-weight="700">اختلاف في المبلغ</text>
+<line x1="280" y1="278" x2="280" y2="294" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="290" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="296" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="317.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >الرسوم مختلفة؟</text>
+<line x1="180" y1="313" x2="158" y2="313" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="307" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="298" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="88.0" y="317.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">اختلاف في الرسوم</text>
+<line x1="280" y1="330" x2="280" y2="346" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="342" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="348" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="369.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >العملة مختلفة؟</text>
+<line x1="180" y1="365" x2="158" y2="365" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="359" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="350" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="88.0" y="369.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">اختلاف في العملة</text>
+<line x1="280" y1="382" x2="280" y2="398" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="394" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="400" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="421.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >رُبط بالمبلغ واليوم؟</text>
+<line x1="180" y1="417" x2="158" y2="417" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="411" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="402" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="88.0" y="421.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">اختلاف في المرجع</text>
+<line x1="280" y1="434" x2="280" y2="450" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="446" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="452" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="473.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >التاريخ أبعد من الهامش؟</text>
+<line x1="180" y1="469" x2="158" y2="469" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="463" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="454" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="88.0" y="473.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">اختلاف في التاريخ</text>
+<line x1="280" y1="486" x2="280" y2="502" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="498" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="504" width="200" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="280.0" y="525.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#142F4E" >حقل إضافي مختلف؟</text>
+<line x1="180" y1="521" x2="158" y2="521" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="169" y="515" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">نعم</text>
+<rect x="20" y="506" width="136" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="88.0" y="525.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">اختلاف في حقل</text>
+<line x1="280" y1="538" x2="280" y2="554" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="292" y="550" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">لا</text>
+<rect x="180" y="556" width="200" height="34" rx="8" fill="#E9F6EF" stroke="#1E8954"/>
+<text x="280.0" y="577.375" text-anchor="middle" direction="rtl" font-size="12.5" fill="#1E8954" font-weight="700">متطابقة</text>
+<line x1="640" y1="120" x2="700" y2="138" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<line x1="220" y1="120" x2="280" y2="138" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+</svg>

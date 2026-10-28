@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="Segoe UI, Tahoma, Arial, sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#55606E"/></marker></defs>
+<rect width="760" height="400" fill="#FFFFFF"/>
+<text x="560" y="30" text-anchor="middle" direction="rtl" font-size="15" font-weight="700" fill="#142F4E">سجلاتنا (A)</text>
+<text x="200" y="30" text-anchor="middle" direction="rtl" font-size="15" font-weight="700" fill="#142F4E">سجلات الطرف الآخر (B)</text>
+<rect x="470" y="50" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="560.0" y="71.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R1  (التكرار 1)</text>
+<rect x="470" y="100" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="560.0" y="121.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R1  (التكرار 2)</text>
+<rect x="470" y="150" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="560.0" y="171.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R2</text>
+<rect x="470" y="250" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="560.0" y="271.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >T011 · 75.25 · 21/10</text>
+<rect x="110" y="50" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="200.0" y="71.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R1  (التكرار 1)</text>
+<rect x="110" y="150" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="200.0" y="171.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R2</text>
+<rect x="110" y="200" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="200.0" y="221.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >R3</text>
+<rect x="110" y="250" width="180" height="34" rx="8" fill="#FFFFFF" stroke="#C9D3DF"/>
+<text x="200.0" y="271.55" text-anchor="middle" direction="rtl" font-size="13" fill="#142F4E" >T011X · 75.25 · 21/10</text>
+<line x1="470" y1="67" x2="290" y2="67" stroke="#1E8954" stroke-width="2.2"/>
+<line x1="470" y1="167" x2="290" y2="167" stroke="#1E8954" stroke-width="2.2"/>
+<line x1="470" y1="267" x2="290" y2="267" stroke="#D98E04" stroke-width="2.2" stroke-dasharray="6 4"/>
+<rect x="668" y="102" width="84" height="30" rx="8" fill="#FFF6E5" stroke="#D98E04"/>
+<text x="710.0" y="121.2" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00" font-weight="700">مكررة</text>
+<rect x="10" y="202" width="92" height="30" rx="8" fill="#FDEEEC" stroke="#B42318"/>
+<text x="56.0" y="220.85" text-anchor="middle" direction="rtl" font-size="11" fill="#B42318" font-weight="700">غير موجودة لدينا</text>
+<text x="380" y="60" text-anchor="middle" direction="rtl" font-size="12" fill="#1E8954">ربط بالمرجع</text>
+<text x="380" y="160" text-anchor="middle" direction="rtl" font-size="12" fill="#1E8954">ربط بالمرجع</text>
+<text x="380" y="260" text-anchor="middle" direction="rtl" font-size="12" fill="#8A5A00">ربط احتياطي</text>
+<text x="740" y="318" text-anchor="start" direction="rtl" font-size="12.5" fill="#55606E">المرور الأول: نفس المرجع بعد التطبيع، والتكرار رقم n في ملف يقابل التكرار رقم n في الآخر.</text>
+<text x="740" y="338" text-anchor="start" direction="rtl" font-size="12.5" fill="#55606E">التكرار الزائد يُصنَّف «مكررة» وليس «غير موجودة».</text>
+<text x="740" y="358" text-anchor="start" direction="rtl" font-size="12.5" fill="#55606E">المرور الثاني (احتياطي): ما بقي بلا زوج ومرجعه غير معروف للطرف الآخر يُربط إذا تساوى المبلغ واليوم والعملة</text>
+<text x="740" y="378" text-anchor="start" direction="rtl" font-size="12.5" fill="#55606E">وكان عدد السجلات في المجموعة متساويًا في الملفين، ويُصنَّف «اختلاف في المرجع» للمراجعة.</text>
+</svg>

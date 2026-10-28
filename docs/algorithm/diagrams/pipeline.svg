@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 796" width="760" height="796" font-family="Segoe UI, Tahoma, Arial, sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#55606E"/></marker></defs>
+<rect width="760" height="796" fill="#FFFFFF"/>
+<rect x="20" y="20" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="43.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">1  قراءة الملفين وتحويلهما</text>
+<text x="300.0" y="61.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">CSV / Excel / JSON → Parquet، كل القيم نص + رقم السطر</text>
+<line x1="300.0" y1="72" x2="300.0" y2="86" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="88" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="111.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">2  التعرف على الأعمدة</text>
+<text x="300.0" y="129.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">درجة من اسم العمود + درجة من قيمه</text>
+<line x1="300.0" y1="140" x2="300.0" y2="154" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="156" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="179.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">3  اختيار عمود المرجع</text>
+<text x="300.0" y="197.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">الزوج الذي تتداخل قيمه فعلًا بين الملفين</text>
+<line x1="300.0" y1="208" x2="300.0" y2="222" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="224" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="247.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">4  الخدمة والقواعد ثم التحقق</text>
+<text x="300.0" y="265.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">هل تنطبق الرسوم؟ مقارنة الحالة، الهوامش، الأخطاء المانعة</text>
+<line x1="300.0" y1="276" x2="300.0" y2="290" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="600" y="20" width="140" height="256" rx="8" fill="#142F4E"/>
+<text x="670.0" y="154.0" text-anchor="middle" direction="rtl" font-size="16" font-weight="700" fill="#FFFFFF">قبل التشغيل</text>
+<rect x="20" y="298" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="321.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">5  تطبيع القيم</text>
+<text x="300.0" y="339.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">المرجع، المبلغ، الرسوم، التاريخ، العملة، معنى الحالة</text>
+<line x1="300.0" y1="350" x2="300.0" y2="364" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="366" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="389.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">6  الربط بالمرجع</text>
+<text x="300.0" y="407.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">التكرار رقم n يقابل التكرار رقم n</text>
+<line x1="300.0" y1="418" x2="300.0" y2="432" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="434" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="457.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">7  الربط الاحتياطي</text>
+<text x="300.0" y="475.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">المبلغ + اليوم + العملة، للمجموعات غير الملتبسة فقط</text>
+<line x1="300.0" y1="486" x2="300.0" y2="500" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="502" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="525.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">8  مقارنة الحقول</text>
+<text x="300.0" y="543.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">كل حقل بقاعدته وهامشه</text>
+<line x1="300.0" y1="554" x2="300.0" y2="568" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="570" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="593.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">9  التصنيف والأهمية</text>
+<text x="300.0" y="611.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">تصنيف واحد لكل سجل + الحقول المختلفة + المبلغ المعرض للخطر</text>
+<line x1="300.0" y1="622" x2="300.0" y2="636" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="600" y="298" width="140" height="324" rx="8" fill="#142F4E"/>
+<text x="670.0" y="466.0" text-anchor="middle" direction="rtl" font-size="16" font-weight="700" fill="#FFFFFF">التشغيل</text>
+<rect x="20" y="644" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="667.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">10  الحفظ والملخص</text>
+<text x="300.0" y="685.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">Parquet للنتائج كاملة، MySQL للاستثناءات وسير المراجعة</text>
+<line x1="300.0" y1="696" x2="300.0" y2="710" stroke="#55606E" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="20" y="712" width="560" height="52" rx="8" fill="#E8F0F8" stroke="#C9D3DF"/>
+<text x="300.0" y="735.075" text-anchor="middle" direction="rtl" font-size="14.5" fill="#142F4E" font-weight="700">11  التقارير</text>
+<text x="300.0" y="753.075" text-anchor="middle" direction="rtl" font-size="11.5" fill="#55606E">Excel / CSV / JSON / PDF</text>
+<rect x="600" y="644" width="140" height="120" rx="8" fill="#142F4E"/>
+<text x="670.0" y="710.0" text-anchor="middle" direction="rtl" font-size="16" font-weight="700" fill="#FFFFFF">النتائج</text>
+</svg>
