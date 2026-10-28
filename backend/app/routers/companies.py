@@ -90,8 +90,13 @@ class CompanyIn(BaseModel):
 def list_companies(user: dict = Depends(current_user)) -> dict:
     companies = [_company(c) for c in db.fetch_all(f"SELECT {COMPANY_COLS} FROM companies ORDER BY is_ours DESC, name")]
     by_id = {c["id"]: {**c, "templates": []} for c in companies}
+    users: dict[int, list[dict]] = {}
+    for r in db.fetch_all("SELECT id, name, layout_a, layout_b FROM recon_templates ORDER BY name"):
+        for lid in {r["layout_a"], r["layout_b"]}:
+            users.setdefault(lid, []).append({"id": r["id"], "name": r["name"]})
     for row in db.fetch_all(f"SELECT {TEMPLATE_COLS} FROM company_templates ORDER BY name"):
         t = _template(row, full=False)
+        t["used_by"] = users.get(t["id"], [])  # the reconciliation templates built on this layout
         if t["company_id"] in by_id:
             by_id[t["company_id"]]["templates"].append(t)
     return {"items": list(by_id.values())}

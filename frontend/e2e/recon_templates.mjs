@@ -41,6 +41,13 @@ await page.fill("#email", process.env.ZR_EMAIL ?? "admin@zaho.ly");
 await page.fill("#password", process.env.ZR_PASSWORD ?? "Admin@2026");
 await page.click("button[type=submit]");
 await page.waitForURL(`${base}/`);
+// The app keeps each person's language on their account: start in English whatever the last session used.
+const setLang = (lang) =>
+  page.evaluate(async (l) => {
+    localStorage.setItem("zr.lang", l);
+    await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Requested-With": "zaho" }, body: JSON.stringify({ lang: l }) });
+  }, lang);
+await setLang("en");
 
 // ---- the list
 await page.goto(`${base}/recon-templates`);
@@ -106,6 +113,34 @@ const run2 = await page.evaluate(async (id) => (await fetch(`/api/runs/${id}`)).
 check(run2.status === "completed" && run2.matched === 7, `top-ups: 7 matched (got ${run2.matched})`);
 await shot("08-run-topups-result");
 
+// ---- Khales: the example files hold different transactions, so 4 exceptions; they open on their own
+await runTemplate("Khales — Libyana", "خالص-حولي.xlsx", "خالص-ليبيانا.xlsx", "07b-run-khales-ready");
+check(await page.locator(".notice.warn", { hasText: "no reference in common" }).isVisible(), "no shared reference is warned about");
+await page.click("button:has-text('Run reconciliation')");
+await page.waitForURL(/\/runs\/\d+$/);
+const khalesId = page.url().split("/").pop();
+let khales;
+for (let i = 0; i < 40; i++) {
+  khales = await page.evaluate(async (id) => (await fetch(`/api/runs/${id}`)).json(), khalesId);
+  if (khales.status === "completed") break;
+  await page.waitForTimeout(500);
+}
+check(khales.exceptions === 4, `khales: 4 exceptions (got ${khales.exceptions})`);
+await page.goto(`${base}/runs`);
+await page.click(`a[href="/exceptions?run=${khalesId}&review=all"]`);
+await page.waitForURL(new RegExp(`/exceptions\\?run=${khalesId}`));
+await page.waitForSelector(".run-scope h2:not(:has-text('…'))");
+await page.waitForTimeout(800);
+const rows = page.locator("table.data tbody tr");
+check((await rows.count()) === 4, `the run's "Open exceptions" shows exactly its 4 exceptions (got ${await rows.count()})`);
+const runCells = await page.locator("table.data tbody tr td.cut a").allTextContents();
+check(runCells.every((x) => x === `#${khalesId}`), "every row belongs to that run");
+await shot("08b-exceptions-one-run");
+await page.click("button:has-text('Show all reconciliations')");
+await page.waitForSelector(".run-group");
+check(await page.locator(`.run-group:has-text("#${khalesId}")`).isVisible(), "the run is listed under By reconciliation");
+await shot("08c-exceptions-by-run");
+
 // ---- the manual way is still there
 await page.goto(`${base}/new?manual=1`);
 await page.waitForSelector(".steps");
@@ -134,6 +169,7 @@ await page.goto(`${base}/recon-templates/${list.items.find((x) => x.name.startsW
 await page.waitForSelector(".pair-table");
 await shot("12-ar-editor");
 
+await setLang("en");
 await browser.close();
 if (errors.length) {
   console.log(errors.join("\n"));

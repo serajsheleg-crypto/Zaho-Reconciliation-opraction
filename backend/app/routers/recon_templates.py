@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .. import db
 from ..engine import recon_templates as rt
-from ..engine.reconcile import check_inputs
+from ..engine.reconcile import check_inputs, shared_references
 from ..security import admin_only, audit, can_edit, current_user, fail
 from .companies import get_template, template_ref
 from .datasets import get_ready, parquet_path
@@ -230,6 +230,11 @@ def plan(t: dict, body: FilesIn) -> dict:
                              mapping=built["mapping"], rules=rules)
         errors += [{**e, "code": f"config_{e['code']}"} for e in check["errors"]]
         errors += rt.data_errors(check, config)
+        if not errors and not shared_references(parquet_path(da["id"]), built["mapping"]["a"], parquet_path(dbs["id"]),
+                                                built["mapping"]["b"], rules):
+            # Possible (two different days), but also what uploading another service's export looks like:
+            # every record would show as missing. Said before the run, never blocking it.
+            built["warnings"].append({"code": "no_shared_references"})
     return {"errors": errors, "warnings": built["warnings"], "unexpected": built["unexpected"], "reread": reread,
             "mapping": built["mapping"], "rules": rules, "check": check, "config": config,
             "pairs": rt.pairs(la["spec"], lb["spec"])}

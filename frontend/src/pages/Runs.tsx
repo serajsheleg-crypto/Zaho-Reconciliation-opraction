@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PlusCircle, Search } from "lucide-react";
+import { AlertTriangle, PlusCircle, Search } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../lib/i18n";
@@ -72,12 +72,24 @@ export default function Runs() {
                       <b style={{ fontWeight: 600 }}>{r.name}</b> <span className="faint small">#{r.id}</span>
                       <div className="small muted">
                         <span className="side-tag a">{r.label_a}</span> ⇄ <span className="side-tag b">{r.label_b}</span>
+                        <span className="faint"> · {r.template_name ? `${t("runs.col.template")}: ${r.template_name}` : t("runs.manual")}</span>
                       </div>
                     </td>
                     <td><RunStatus status={r.status} progress={r.progress} /></td>
                     <td className="num">{r.rows_a != null ? `${fmtInt(r.rows_a)} / ${fmtInt(r.rows_b)}` : "—"}</td>
                     <td className="num"><b>{fmtPct(r.match_rate, 2)}</b></td>
-                    <td className="num">{fmtInt(r.exceptions)}</td>
+                    <td className="num">
+                      {r.exceptions ? (
+                        // Opens the Exceptions page on this run only: the same rows this count is of.
+                        <Link className="btn sm" to={`/exceptions?run=${r.id}&review=all`} onClick={(e) => e.stopPropagation()}
+                          title={t("runs.openExceptions")}>
+                          <AlertTriangle />
+                          {fmtInt(r.exceptions)}
+                        </Link>
+                      ) : (
+                        fmtInt(r.exceptions)
+                      )}
+                    </td>
                     <td className="num">{fmtInt(r.open_exceptions)}</td>
                     <td className="num">{fmtMoney(r.exposure)}</td>
                     <td className="small muted nowrap">{fmtDate(r.created_at)}<div className="faint">{r.created_by_name}</div></td>

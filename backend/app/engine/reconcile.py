@@ -316,6 +316,21 @@ def validate(mapping: dict, cols_a: list[str], cols_b: list[str], rules: dict | 
         raise ConfigError(f"{e['code']}_{e['side']}" + (f":{e['column']}" if e.get("column") else ""))
 
 
+def shared_references(path_a: Path, ma: dict, path_b: Path, mb: dict, rules: dict) -> int:
+    """How many distinct references both sides have, normalised exactly as the run pairs them."""
+    rules = {**DEFAULT_RULES, **(rules or {})}
+    con = connect(macros=True)
+    try:
+        return int(con.execute(f"""
+            SELECT count(*) FROM (SELECT DISTINCT k_a FROM ({_side_select("a", ma, [], rules, side_source(path_a, ma))})
+                                  WHERE k_a IS NOT NULL) a
+            JOIN (SELECT DISTINCT k_b FROM ({_side_select("b", mb, [], rules, side_source(path_b, mb))})
+                  WHERE k_b IS NOT NULL) b ON a.k_a = b.k_b
+        """).fetchone()[0])
+    finally:
+        con.close()
+
+
 def check_inputs(*, path_a: Path, path_b: Path, mapping: dict, rules: dict) -> dict:
     """What the Check step shows before a run starts.
 

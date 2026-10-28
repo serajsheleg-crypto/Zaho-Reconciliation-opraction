@@ -3027,3 +3027,45 @@ table.data tr.skipped-row td:last-child {
 .run-line > .field {
   flex: 1 1 260px;
 }
+
+.run-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  border-inline-start: 4px solid var(--brand);
+}
+.run-groups {
+  display: grid;
+  border-top: 1px solid var(--line);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.run-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.run-group:last-child {
+  border-bottom: 0;
+}
+.run-group:hover,
+.run-group:focus-visible {
+  background: var(--surface-2);
+}
+.run-group-n {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 140px;
+}

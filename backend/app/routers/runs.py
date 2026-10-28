@@ -300,7 +300,7 @@ def rerun(run_id: int, request: Request, user: dict = Depends(can_edit)) -> dict
 
 LIST_COLS = ("id, name, status, progress, stage, label_a, label_b, source_a_name, source_b_name, rows_a, rows_b, "
              "matched, exceptions, match_rate, amount_a, amount_b, exposure, error, created_at, started_at, "
-             "finished_at, duration_ms, created_by")
+             "finished_at, duration_ms, created_by, recon_template_id, stored_exceptions")
 
 
 def _run_or_404(run_id: int) -> dict:
@@ -325,6 +325,7 @@ def list_runs(q: str | None = Query(None, max_length=100), status: str | None = 
     total = db.scalar(f"SELECT COUNT(*) FROM runs r WHERE {' AND '.join(where)}", **params)
     rows = db.fetch_all(
         f"SELECT {', '.join('r.' + c.strip() for c in LIST_COLS.split(','))}, u.name AS created_by_name, "
+        f"JSON_UNQUOTE(JSON_EXTRACT(r.config, '$.rules.recon_template.name')) AS template_name, "
         f"(SELECT COUNT(*) FROM exceptions e WHERE e.run_id = r.id AND e.review_status IN ('open','in_review')) AS open_exceptions "
         f"FROM runs r LEFT JOIN users u ON u.id = r.created_by WHERE {' AND '.join(where)} "
         f"ORDER BY r.id DESC LIMIT :lim OFFSET :off", lim=size, off=(page - 1) * size, **params)

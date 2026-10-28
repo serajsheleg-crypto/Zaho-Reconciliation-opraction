@@ -97,6 +97,7 @@ export default function Companies() {
                       <th>{t("co.col.template")}</th>
                       <th>{t("co.col.reads")}</th>
                       <th>{t("co.col.compares")}</th>
+                      <th>{t("co.col.usedBy")}</th>
                       <th className="num">{t("co.col.words")}</th>
                       <th>{t("co.col.sample")}</th>
                       {admin && <th />}
@@ -124,6 +125,13 @@ export default function Companies() {
                           )}
                         </td>
                         <td className="small">{x.summary.extras.length ? x.summary.extras.join(", ") : <span className="faint">—</span>}</td>
+                        <td className="small">
+                          {x.used_by?.length ? (
+                            x.used_by.map((u) => <div key={u.id}><Link to={`/recon-templates/${u.id}`}>{u.name}</Link></div>)
+                          ) : (
+                            <span className="faint">{t("co.usedBy.none")}</span>
+                          )}
+                        </td>
                         <td className="num">{fmtInt(x.summary.statuses)}</td>
                         <td className="small muted">
                           <div className="clip" title={x.sample_name ?? ""}>{x.sample_name}</div>

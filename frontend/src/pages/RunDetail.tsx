@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { clsx } from "clsx";
 import {
   Braces, CheckCircle2, Circle, Download, FileArchive, FileSpreadsheet, FileText, Loader2, RotateCcw, Search, Square,
@@ -96,6 +96,11 @@ export default function RunDetail() {
           )}
         </div>
         <div className="actions">
+          {r.status === "completed" && !!r.exceptions && (
+            <Link className="btn" to={`/exceptions?run=${r.id}&review=all`}>
+              {t("runs.openExceptions")} <span className="faint tnum">{fmtInt(r.exceptions)}</span>
+            </Link>
+          )}
           {r.status === "completed" && <ExportMenu run={r} onDone={run.reload} />}
           {can("edit") && !active && (
             <button

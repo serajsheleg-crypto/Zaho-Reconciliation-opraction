@@ -412,3 +412,78 @@ def test_recon_templates_api(client, files):
     assert again["status"] == "completed" and again["matched"] == run["matched"]
     assert again["config"]["rules"]["recon_template"]["version"] == 1 and again["recon_template_id"] == top["id"]
     assert client.delete(f"/api/templates/{ams['id']}", headers=H).status_code == 200  # no longer used
+
+
+def _layout_once(client, name: str, sample: Path) -> dict:
+    """The layout saved under this name, created from its sample file the first time."""
+    for c in client.get("/api/companies").json()["items"]:
+        for t in c["templates"]:
+            if t["name"] == name:
+                return client.get(f"/api/templates/{t['id']}").json()
+    plan = LAYOUTS[name]
+    return _layout(client, plan["company"], plan.get("is_ours", False), name, sample)
+
+
+def test_each_template_runs_its_own_pairing_and_keeps_its_exceptions(client, files):
+    """The three example pairings, each run from its own template; every run's exceptions are its own."""
+    login(client)
+    layouts = {name: _layout_once(client, name, files / plan["sample"]) for name, plan in LAYOUTS.items()}
+    # One Hawli layout serves all three: the three Hawli exports have the same columns and meanings.
+    assert len({p["is_ours"] for p in layouts.values()}) == 2
+    runs = {}
+    for name, r in RECONS.items():
+        body = _body(name, layouts[r["layout_a"]], layouts[r["layout_b"]], name=f"{name} · pairing")
+        made = client.post("/api/recon-templates", json=body, headers=H)
+        assert made.status_code == 200, made.text
+        t = made.json()
+        assert (t["layouts"]["a"]["name"], t["layouts"]["b"]["name"]) == (r["layout_a"], r["layout_b"])
+        a, b = upload(client, files / r["files"][0]), upload(client, files / r["files"][1])
+        prep = client.post(f"/api/recon-templates/{t['id']}/prepare", json={"dataset_a": a["id"], "dataset_b": b["id"]},
+                           headers=H).json()
+        assert prep["errors"] == [] and prep["warnings"] == [], (name, prep["errors"], prep["warnings"])
+        assert prep["mapping"]["a"]["key"] == "ProviderReference"
+        assert prep["mapping"]["b"]["key"] == LAYOUTS[r["layout_b"]]["fields"]["key"]
+        started = client.post(f"/api/recon-templates/{t['id']}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]},
+                              headers=H)
+        run = wait(client, f"/api/runs/{started.json()['id']}")
+        assert run["status"] == "completed", run["error"]
+        # The run used this template's configuration, nothing generic or detected.
+        assert run["config"]["rules"]["recon_template"]["config"]["compare"] == r["compare"]
+        compared = {k for k in ("amount", "fee", "status", "date", "currency") if run["summary"]["compared"][k]}
+        assert compared == set(r["compare"])
+        assert run["config"]["rules"]["amount_absolute"] is bool(r["rules"].get("amount_absolute"))
+        got = {k: v["count"] for k, v in run["summary"]["categories"].items() if v["count"]}
+        assert got == recon_fixtures.EXPECTED[name]
+        runs[name] = (run, t)
+
+    # ---- every exception belongs to the run that found it
+    by_run = {x["id"]: x for x in client.get("/api/exceptions/runs", params={"review": "all"}).json()["items"]}
+    listed = {x["id"]: x for x in client.get("/api/runs", params={"size": 100}).json()["items"]}
+    for name, (run, t) in runs.items():
+        page = client.get("/api/exceptions", params={"run_id": run["id"], "review": "all", "size": 200}).json()
+        assert page["total"] == run["exceptions"] == run["stored_exceptions"] > 0
+        assert {x["run_id"] for x in page["items"]} == {run["id"]}
+        assert {x["template_name"] for x in page["items"]} == {t["name"]}
+        assert by_run[run["id"]]["n"] == run["exceptions"] and by_run[run["id"]]["template_name"] == t["name"]
+        assert listed[run["id"]]["template_name"] == t["name"] and listed[run["id"]]["exceptions"] == run["exceptions"]
+
+    # ---- reviewing one run's exception leaves the other runs alone
+    cards, khales = runs["Local cards — Dogoon (كروت محلية)"][0], runs["Khales — Libyana (خالص)"][0]
+    one = client.get("/api/exceptions", params={"run_id": cards["id"], "review": "all"}).json()["items"][0]
+    r = client.patch(f"/api/exceptions/{one['id']}", json={"review_status": "resolved", "resolution": "checked"}, headers=H)
+    assert r.status_code == 200 and r.json()["run_id"] == cards["id"]
+    active = {x["id"]: x["n"] for x in client.get("/api/exceptions/runs").json()["items"]}
+    assert active[cards["id"]] == cards["exceptions"] - 1 and active[khales["id"]] == khales["exceptions"]
+    detail = client.get(f"/api/runs/{cards['id']}/results/{one['result_id']}").json()
+    assert detail["exception"]["id"] == one["id"] and detail["exception"]["review_status"] == "resolved"
+
+
+def test_another_services_export_is_flagged_before_the_run(client, files):
+    """The Hawli exports all look alike: our local-cards export in the Khales template fits the columns, but no
+    reference is shared, which is said before the run (every record would otherwise show as missing)."""
+    login(client)
+    khales = next(t for t in client.get("/api/recon-templates").json()["items"] if t["name"].startswith("Khales"))
+    a, b = upload(client, files / "كروت محلية-حولي.xlsx"), upload(client, files / "خالص-ليبيانا.xlsx")
+    prep = client.post(f"/api/recon-templates/{khales['id']}/prepare", json={"dataset_a": a["id"], "dataset_b": b["id"]},
+                       headers=H).json()
+    assert prep["errors"] == [] and {"code": "no_shared_references"} in prep["warnings"]

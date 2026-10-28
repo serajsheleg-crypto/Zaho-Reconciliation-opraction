@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { CheckCheck, Clock, EyeOff, Search, UserPlus } from "lucide-react";
+import { ArrowLeftRight, CheckCheck, Clock, ExternalLink, EyeOff, Search, UserPlus, X } from "lucide-react";
 import { clsx } from "clsx";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../lib/i18n";
-import { fmtInt, fmtMoney } from "../lib/format";
-import type { ExceptionRow, Paged } from "../lib/types";
+import { fmtDate, fmtInt, fmtMoney, fmtPct } from "../lib/format";
+import type { ExceptionRow, Paged, Run } from "../lib/types";
 import { ReviewPill, SeverityPill, StatusWord, SEVERITIES } from "../components/labels";
 import ResultDrawer from "../components/ResultDrawer";
 import { Empty, ErrorBox, Loading, Pager, Popover, useAsync, useToast, errText } from "../components/ui";
@@ -17,6 +17,12 @@ const CATS = [
 ];
 
 type Facet = { severity: string; n: number; exposure: number };
+/** One reconciliation run and how many of its exceptions match the filters. */
+type RunGroup = {
+  id: number; name: string; label_a: string; label_b: string; status: string; created_at: string; matched: number | null;
+  run_exceptions: number | null; match_rate: number | null; template_name: string | null; n: number; active: number;
+  critical: number; exposure: number;
+};
 
 export default function Exceptions() {
   const { t } = useI18n();
@@ -29,6 +35,7 @@ export default function Exceptions() {
     severity: params.get("severity") ?? "",
     assignee: params.get("assignee") ?? "",
     sort: params.get("sort") ?? "severity",
+    run: params.get("run") ?? "",
   };
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
@@ -47,10 +54,19 @@ export default function Exceptions() {
     setPage(1);
     setSelected(new Set());
   }, [key]);
+  const { run: runParam, ...filters } = f;
   const list = useAsync(
-    () => api<Paged<ExceptionRow> & { facets: Facet[] }>("/api/exceptions", { query: { ...f, q: query, page, size: 50 } }),
+    () => api<Paged<ExceptionRow> & { facets: Facet[] }>("/api/exceptions", {
+      query: { ...filters, run_id: runParam || undefined, q: query, page, size: 50 },
+    }),
     [key, page],
   );
+  // Without a run picked: the same filters counted per run, newest first. With one: that run's facts.
+  const groups = useAsync(
+    () => (runParam ? Promise.resolve(null) : api<{ items: RunGroup[] }>("/api/exceptions/runs", { query: { ...filters, q: query } })),
+    [key],
+  );
+  const run = useAsync(() => (runParam ? api<Run>(`/api/runs/${runParam}`) : Promise.resolve(null)), [runParam]);
 
   const set = (k: string, v: string) => {
     const p = new URLSearchParams(params);
@@ -83,6 +99,65 @@ export default function Exceptions() {
           <p>{t("ex.subtitle")}</p>
         </div>
       </div>
+
+      {runParam ? (
+        <section className="panel panel-pad run-scope">
+          <div className="grow" style={{ minWidth: 0 }}>
+            <span className="small muted">{t("ex.forRun", { id: runParam })}</span>
+            <h2 style={{ margin: "2px 0 4px" }}>{run.data?.name ?? "…"}</h2>
+            {run.data && (
+              <div className="small muted row tight">
+                <span className="side-tag a">{run.data.label_a}</span>
+                <ArrowLeftRight style={{ width: 14 }} className="faint" />
+                <span className="side-tag b">{run.data.label_b}</span>
+                <span>
+                  {run.data.config?.rules.recon_template ? `${t("runs.col.template")}: ${run.data.config.rules.recon_template.name} · ` : ""}
+                  {fmtDate(run.data.created_at)} ·{" "}
+                  {t("ex.runFacts", { n: fmtInt(run.data.matched), rate: fmtPct(run.data.match_rate, 2), total: fmtInt(run.data.exceptions) })}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="row tight" style={{ flex: "none" }}>
+            <Link className="btn sm" to={`/runs/${runParam}`}><ExternalLink />{t("ex.viewRun")}</Link>
+            <button className="btn sm" onClick={() => set("run", "")}><X />{t("ex.showAll")}</button>
+          </div>
+        </section>
+      ) : (
+        <section className="panel" style={{ overflow: "hidden", marginBottom: 14 }}>
+          <div className="panel-head">
+            <div>
+              <h2>{t("ex.byRun")}</h2>
+              <p>{t("ex.byRun.help")}</p>
+            </div>
+          </div>
+          {groups.error && <div className="panel-body"><ErrorBox error={groups.error} retry={groups.reload} /></div>}
+          {groups.data && groups.data.items.length === 0 && <div className="panel-body small muted">{t("ex.empty")}</div>}
+          {!!groups.data?.items.length && (
+            <div className="run-groups">
+              {groups.data.items.map((g) => (
+                <button key={g.id} className="run-group" onClick={() => set("run", String(g.id))}>
+                  <span className="grow" style={{ minWidth: 0 }}>
+                    <b><bdi>{g.name}</bdi></b> <span className="faint small">#{g.id}</span>
+                    <span className="small muted" style={{ display: "block" }}>
+                      {g.template_name ? `${g.template_name} · ` : ""}
+                      {g.label_a} ⇄ {g.label_b} · {fmtDate(g.created_at)} · {t("runs.col.rate")} {fmtPct(g.match_rate, 2)}
+                    </span>
+                  </span>
+                  <span className="run-group-n">
+                    <b className="tnum">{t("ex.n", { n: fmtInt(g.n) })}</b>
+                    <span className="small muted">
+                      {t("ex.nActive", { n: fmtInt(g.active) })}
+                      {g.critical ? ` · ${t("ex.nCritical", { n: fmtInt(g.critical) })}` : ""}
+                    </span>
+                  </span>
+                  <span className="btn sm">{t("runs.openExceptions")}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="chips" style={{ marginBottom: 14 }}>
         <button className={clsx("chip", !f.severity && "on")} onClick={() => set("severity", "")}>
@@ -187,14 +262,17 @@ export default function Exceptions() {
                     <td><span className="ref">{x.ref_a ?? x.ref_b}</span></td>
                     <td className="num">{fmtMoney(x.amount_a ?? x.amount_b)}</td>
                     <td className="nowrap"><StatusWord status={x.status_a} /> <span className="faint">/</span> <StatusWord status={x.status_b} /></td>
-                    <td className="small cut" title={x.run_name}><Link to={`/runs/${x.run_id}`} onClick={(e) => e.stopPropagation()}>#{x.run_id}</Link> <span className="muted">{x.run_name}</span></td>
+                    <td className="small cut" title={x.template_name ?? x.run_name}>
+                      <Link to={`/exceptions?run=${x.run_id}&review=${f.review}`} onClick={(e) => e.stopPropagation()}>#{x.run_id}</Link>{" "}
+                      <span className="muted">{x.template_name ?? x.run_name}</span>
+                    </td>
                     <td className="small">{x.assignee_name ?? <span className="faint">—</span>}</td>
                     <td><ReviewPill status={x.review_status} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {items.length === 0 && <Empty title={t("ex.empty")} />}
+            {items.length === 0 && <Empty title={t(runParam ? "ex.noneForRun" : "ex.empty")} />}
           </div>
         )}
         {list.data && list.data.total > 0 && <Pager page={page} size={50} total={list.data.total} onPage={setPage} />}

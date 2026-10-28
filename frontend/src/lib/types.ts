@@ -184,6 +184,8 @@ export interface Template {
     skip_no_key?: boolean;
   };
   spec?: TemplateSpec;
+  /** The reconciliation templates built on this layout. */
+  used_by?: { id: number; name: string }[];
   company?: string;
   is_ours?: boolean;
 }
@@ -367,6 +369,9 @@ export interface Run {
   created_by: number | null;
   created_by_name?: string | null;
   open_exceptions?: number;
+  recon_template_id?: number | null;
+  /** The reconciliation template the run was started from, as the run recorded it. */
+  template_name?: string | null;
   summary?: Summary | null;
   config?: { mapping: Mapping; rules: Rules };
   review?: Record<string, number>;
@@ -439,6 +444,7 @@ export interface ExceptionRow {
   assignee_name: string | null;
   resolution: string | null;
   run_name: string;
+  template_name?: string | null;
   label_a: string;
   label_b: string;
   age_days: number;

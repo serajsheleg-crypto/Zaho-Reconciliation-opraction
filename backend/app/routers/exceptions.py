@@ -12,11 +12,13 @@ from ..security import audit, can_edit, current_user, fail
 router = APIRouter(prefix="/api/exceptions", tags=["exceptions"])
 
 REVIEW = ("open", "in_review", "resolved", "ignored")
+# The reconciliation template a run was started from, as the run recorded it (it stays after the template is deleted).
+TEMPLATE_NAME = "JSON_UNQUOTE(JSON_EXTRACT(r.config, '$.rules.recon_template.name'))"
 COLS = ("e.id, e.run_id, e.result_id, e.category, e.severity, e.mismatch, e.method, e.ref_a, e.ref_b, e.amount_a, "
         "e.amount_b, e.amount_diff, e.exposure, e.status_a, e.status_b, e.status_a_raw, e.status_b_raw, e.date_a, "
         "e.date_b, e.currency_a, e.currency_b, e.review_status, e.assignee_id, e.resolution, e.resolved_at, "
         "e.updated_at, e.created_at, u.name AS assignee_name, r.name AS run_name, r.label_a, r.label_b, "
-        "DATEDIFF(NOW(), e.created_at) AS age_days")
+        f"{TEMPLATE_NAME} AS template_name, DATEDIFF(NOW(), e.created_at) AS age_days")
 
 
 def _filters(review: str | None, category: str | None, severity: str | None, assignee: str | None,
@@ -67,6 +69,26 @@ def list_exceptions(review: str | None = "active", category: str | None = None, 
     facets = db.fetch_all(f"SELECT e.severity, COUNT(*) AS n, COALESCE(SUM(e.exposure),0) AS exposure "
                           f"FROM exceptions e WHERE {clause} GROUP BY e.severity", **p)
     return {"items": rows, "total": int(total or 0), "page": page, "size": size, "facets": facets}
+
+
+@router.get("/runs")
+def exceptions_by_run(review: str | None = "active", category: str | None = None, severity: str | None = None,
+                      assignee: str | None = None, q: str | None = Query(None, max_length=120),
+                      user: dict = Depends(current_user)) -> dict:
+    """The exceptions matching the filters, counted per reconciliation run (newest run first), so each run's
+    exceptions can be opened on their own. The counts are of the same rows `GET /api/exceptions?run_id=` lists."""
+    clause, p = _filters(review, category, severity, assignee, None, q, user)
+    rows = db.fetch_all(
+        f"SELECT r.id, r.name, r.label_a, r.label_b, r.status, r.created_at, r.matched, r.exceptions AS run_exceptions, "
+        f"r.stored_exceptions, r.match_rate, {TEMPLATE_NAME} AS template_name, COUNT(*) AS n, "
+        f"SUM(e.review_status IN ('open','in_review')) AS active, "
+        f"SUM(e.severity = 'critical') AS critical, COALESCE(SUM(e.exposure), 0) AS exposure "
+        f"FROM exceptions e JOIN runs r ON r.id = e.run_id WHERE {clause} "
+        f"GROUP BY r.id ORDER BY r.id DESC LIMIT 100", **p)
+    for r in rows:
+        for k in ("n", "active", "critical"):
+            r[k] = int(r[k] or 0)
+    return {"items": rows}
 
 
 class UpdateIn(BaseModel):
