@@ -70,6 +70,36 @@ await page.click("button:has-text('Save template')");
 await page.waitForURL(`${base}/recon-templates`);
 check(await page.locator(".rt-card h2", { hasText: uiName }).waitFor().then(() => true, () => false), "the new template is saved and listed");
 
+// ---- the field mapping: suggested from the two layouts, changed by hand, saved and read back
+const mapName = `Mapping test ${Date.now() % 100000}`;
+await page.goto(`${base}/recon-templates/new`);
+await page.fill("#rt-name", mapName);
+await page.selectOption("#rt-layout-a", { label: "Hawli - Khales" });
+await page.selectOption("#rt-layout-b", { label: "Libyana - Khales sales" });
+await page.waitForSelector(".pair-table.mapping");
+const sel = (field, side) => page.locator(`.pair-table.mapping select[aria-label^="${field} · ${side}"]`);
+const picked = async (field, side) => (await sel(field, side).inputValue()).slice(2);
+check(await picked("Reference", "Zaho") === "ProviderReference" && await picked("Reference", "Libyana") === "Reference ID",
+  "suggested matching key: ProviderReference ↔ Reference ID");
+check(await picked("Amount", "Zaho") === "Amount" && await picked("Amount", "Libyana") === "Package value",
+  "suggested amount: Amount ↔ Package value");
+check(await picked("Fee", "Zaho") === "Fee" && await picked("Fee", "Libyana") === "Zaho commission",
+  "suggested fee: Fee ↔ Zaho commission");
+check(await picked("Status", "Libyana") === "", "Libyana has no status column: left unmapped, nothing invented");
+await shot("02b-mapping-suggested");
+await sel("Fee", "Libyana").selectOption("c:1% fee");
+check(await page.locator(".map-reset").count() === 1, "the changed row is marked");
+await page.click("button:has-text('Save template')");
+await page.waitForURL(`${base}/recon-templates`);
+const saved = (await page.evaluate(async () => (await fetch("/api/recon-templates")).json())).items.find((x) => x.name === mapName);
+await page.goto(`${base}/recon-templates/${saved.id}`);
+await page.waitForSelector(".pair-table.mapping");
+check(await picked("Fee", "Libyana") === "1% fee", "the changed column is saved and shown again");
+await shot("02c-mapping-reloaded");
+await page.click("button:has-text('Delete')");
+await page.click(".modal button.danger");
+await page.waitForURL(`${base}/recon-templates`);
+
 // ---- New reconciliation: the two ways
 await page.goto(`${base}/new`);
 await page.waitForSelector(".choose-grid");

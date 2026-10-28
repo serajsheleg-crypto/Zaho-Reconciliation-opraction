@@ -38,7 +38,7 @@ def _row(row: dict | None, full: bool = True) -> dict | None:
     la, lb = get_template(row["layout_a"]), get_template(row["layout_b"])
     row["layouts"] = {s: ({**template_ref(t), "summary": t["summary"]} if t else None) for s, t in (("a", la), ("b", lb))}
     if full and la and lb:
-        row["pairs"] = rt.pairs(la["spec"], lb["spec"])
+        row["pairs"] = rt.pairs(la["spec"], lb["spec"], row["config"])  # the mapping it saved
     stats = db.fetch_one("SELECT COUNT(*) AS runs, MAX(created_at) AS last_run FROM runs WHERE recon_template_id=:id",
                          id=row["id"]) or {}
     row["runs"] = int(stats.get("runs") or 0)
@@ -75,9 +75,11 @@ class PairsIn(BaseModel):
 
 @router.post("/pairs")
 def preview_pairs(body: PairsIn, user: dict = Depends(current_user)) -> dict:
-    """What two layouts can be reconciled on, for the editor to offer before anything is saved."""
+    """The mapping two layouts suggest, and every column each side can be mapped to, for the editor. Nothing is
+    saved here: the person reviews the suggestion, changes what is wrong and saves the template."""
     la, lb = _layouts(body.layout_a, body.layout_b)
-    return {"pairs": rt.pairs(la["spec"], lb["spec"])}
+    return {"pairs": rt.pairs(la["spec"], lb["spec"]), "suggestion": rt.suggest(la["spec"], lb["spec"]),
+            "sources": {"a": rt.layout_sources(la["spec"]), "b": rt.layout_sources(lb["spec"])}}
 
 
 class TemplateIn(BaseModel):
@@ -88,6 +90,10 @@ class TemplateIn(BaseModel):
     label_a: str = Field(min_length=1, max_length=80)
     label_b: str = Field(min_length=1, max_length=80)
     compare: list[str] = Field(min_length=1, max_length=20)
+    # The approved mapping: {field: {"a": source | None, "b": source | None}} and added pairs [{label, a, b}].
+    # Left out, the two layouts' suggestion is saved.
+    fields: dict | None = None
+    extras: list[dict] | None = Field(default=None, max_length=12)
     rules: dict = Field(default_factory=dict)
     is_active: bool = True
     # The version the person was editing; a newer saved version is never overwritten silently.
@@ -108,7 +114,8 @@ def _layouts(a: int, b: int) -> tuple[dict, dict]:
 def _config(body: TemplateIn) -> str:
     la, lb = _layouts(body.layout_a, body.layout_b)
     try:
-        return db.to_json(rt.clean_config({"compare": body.compare, "rules": body.rules}, la["spec"], lb["spec"]))
+        return db.to_json(rt.clean_config({"compare": body.compare, "rules": body.rules, "fields": body.fields,
+                                           "extras": body.extras}, la["spec"], lb["spec"]))
     except rt.ReconTemplateError as exc:
         raise fail(400, exc.code, f"The reconciliation template is not valid: {exc.detail or exc.code}.")
 
@@ -244,7 +251,7 @@ def plan(t: dict, body: FilesIn) -> dict:
             built["warnings"].append({"code": "no_shared_references"})
     return {"errors": errors, "warnings": built["warnings"], "unexpected": built["unexpected"], "reread": reread,
             "mapping": built["mapping"], "rules": rules, "check": check, "config": config,
-            "pairs": rt.pairs(la["spec"], lb["spec"])}
+            "pairs": rt.pairs(la["spec"], lb["spec"], config)}
 
 
 @router.post("/{tid}/prepare")

@@ -50,6 +50,15 @@ class ReconTemplateError(Exception):
 
 
 # --------------------------------------------------------------------------- the two layouts side by side
+#
+# A template saves its own field mapping: per field ("key", "amount", "fee", "status", "date", "currency") the
+# column of each report, or None when that report does not have it; plus pairs of other columns a person added
+# ("extras", compared as text). Choosing the two layouts only *suggests* the mapping: the columns each layout
+# says hold that field. The person reviews it, changes any column, and saves; runs then use what was saved.
+
+FIELD_IDS = ("key", *COMPARABLE)
+MAX_EXTRA_PAIRS = 6
+
 
 def _part(spec: dict, field: str) -> dict | None:
     return next((p for p in spec.get("parts") or [] if p.get("field") == field), None)
@@ -64,33 +73,44 @@ def field_source(spec: dict, field: str) -> dict | None:
     return {"column": p["column"], "by": p["by"], "values": p["values"]} if p else None
 
 
-def pairs(spec_a: dict, spec_b: dict) -> list[dict]:
-    """The field pairs two layouts can be reconciled on.
-
-    Returns [{"id", "label", "a", "b"}]: "key" first (the matching key), then each standard field both layouts
-    provide, then the named fields both have (same name, ignoring case and spelling variants). A field only one
-    layout provides is listed with the other side None: it can never be compared.
-    """
-    out = [{"id": "key", "label": "key", "a": field_source(spec_a, "key"), "b": field_source(spec_b, "key")}]
-    for f in COMPARABLE:
-        a, b = field_source(spec_a, f), field_source(spec_b, f)
-        if a or b:
-            out.append({"id": f, "label": f, "a": a, "b": b})
+def suggest(spec_a: dict, spec_b: dict) -> dict:
+    """The mapping two layouts suggest: each field from the column each layout gives it, and the named fields
+    both layouts have (same name). Nothing is paired that a layout does not name."""
+    fields = {f: {"a": field_source(spec_a, f), "b": field_source(spec_b, f)} for f in FIELD_IDS}
     b_by_name = {norm_text(e["name"]): e for e in spec_b.get("extras") or []}
-    seen = set()
-    for ea in spec_a.get("extras") or []:
-        eb = b_by_name.get(norm_text(ea["name"]))
-        seen.add(norm_text(ea["name"]))
-        out.append({"id": f"extra:{ea['name']}", "label": ea["name"], "a": {"column": ea["column"]},
-                    "b": {"column": eb["column"]} if eb else None})
-    for eb in spec_b.get("extras") or []:
-        if norm_text(eb["name"]) not in seen:
-            out.append({"id": f"extra:{eb['name']}", "label": eb["name"], "a": None, "b": {"column": eb["column"]}})
+    extras = [{"label": ea["name"], "a": ea["column"], "b": b_by_name[norm_text(ea["name"])]["column"]}
+              for ea in spec_a.get("extras") or [] if norm_text(ea["name"]) in b_by_name]
+    return {"fields": fields, "extras": extras[:MAX_EXTRA_PAIRS]}
+
+
+def mapping_of(config: dict, spec_a: dict, spec_b: dict) -> dict:
+    """The mapping a template uses: the one it saved, else (a template saved before mappings were) the suggestion."""
+    if config.get("fields"):
+        return {"fields": {f: {"a": (config["fields"].get(f) or {}).get("a"), "b": (config["fields"].get(f) or {}).get("b")}
+                           for f in FIELD_IDS}, "extras": list(config.get("extras") or [])}
+    return suggest(spec_a, spec_b)
+
+
+def pairs(spec_a: dict, spec_b: dict, config: dict | None = None) -> list[dict]:
+    """The field pairs, for display: [{"id", "label", "a", "b"}], "key" first, then every field at least one side
+    maps (the other side None when it has no such column), then the added pairs as "extra:<label>"."""
+    m = mapping_of(config or {}, spec_a, spec_b)
+    out = []
+    for f in FIELD_IDS:
+        a, b = m["fields"][f]["a"], m["fields"][f]["b"]
+        if f == "key" or a or b:
+            out.append({"id": f, "label": f, "a": a, "b": b})
+    out += [{"id": f"extra:{e['label']}", "label": e["label"], "a": {"column": e["a"]}, "b": {"column": e["b"]}}
+            for e in m["extras"]]
     return out
 
 
-def comparable_ids(spec_a: dict, spec_b: dict) -> list[str]:
-    return [p["id"] for p in pairs(spec_a, spec_b) if p["id"] != "key" and p["a"] and p["b"]]
+def layout_sources(spec: dict) -> dict:
+    """What a person can pick for one side: every column of the layout's sample, and the companion-row values
+    the layout defines (Dogoon's fee on the profit_customer row)."""
+    return {"columns": [c["name"] for c in spec.get("columns") or []],
+            "parts": [{"column": p["column"], "by": p["by"], "values": p["values"], "field": p["field"]}
+                      for p in spec.get("parts") or []]}
 
 
 # --------------------------------------------------------------------------- saving
@@ -103,11 +123,68 @@ def _number(v, lo: float, hi: float, default: float) -> float:
     return x if lo <= x <= hi else default
 
 
+def _source(spec: dict, src, field: str) -> dict | None:
+    """A side's column for a field, checked against that layout: one of its columns, or one of its companion-row
+    values (only the amount or the fee can come from a companion row)."""
+    if not src:
+        return None
+    if isinstance(src, str):
+        src = {"column": src}
+    col = str(src.get("column") or "").strip()
+    if not col:
+        return None
+    if src.get("by"):
+        part = next((p for p in spec.get("parts") or [] if p["column"] == col and p["by"] == src["by"]
+                     and [str(v).lower() for v in p["values"]] == [str(v).lower() for v in src.get("values") or []]), None)
+        if not part or field not in PART_FIELDS:
+            raise ReconTemplateError("recon_unknown_column", col)
+        return {"column": part["column"], "by": part["by"], "values": list(part["values"])}
+    names = {c["name"] for c in spec.get("columns") or []}
+    if names and col not in names:
+        raise ReconTemplateError("recon_unknown_column", col)
+    return {"column": col}
+
+
 def clean_config(config: dict, spec_a: dict, spec_b: dict) -> dict:
-    """Validate a reconciliation template's settings against its two layouts; raises ReconTemplateError."""
-    if not (spec_a.get("fields") or {}).get("key") or not (spec_b.get("fields") or {}).get("key"):
+    """Validate a reconciliation template against its two layouts; raises ReconTemplateError.
+
+    Returns {"fields", "extras", "compare", "rules"}. Without "fields" (a template saved before mappings were
+    saved, or a script) the layouts' suggestion is taken and saved explicitly from then on.
+    """
+    given = config.get("fields")
+    m = mapping_of({"fields": given, "extras": config.get("extras")} if given else {}, spec_a, spec_b)
+    if not given and config.get("extras") is not None:
+        m["extras"] = list(config.get("extras") or [])
+    fields = {f: {"a": _source(spec_a, m["fields"][f]["a"], f), "b": _source(spec_b, m["fields"][f]["b"], f)}
+              for f in FIELD_IDS}
+    if not fields["key"]["a"] or not fields["key"]["b"]:
         raise ReconTemplateError("recon_no_key")
-    available = comparable_ids(spec_a, spec_b)
+    extras, labels = [], set()
+    for e in m["extras"]:
+        label = str(e.get("label") or "").strip()[:80]
+        a, b = _source(spec_a, e.get("a"), "extra"), _source(spec_b, e.get("b"), "extra")
+        if not label or not a or not b:
+            raise ReconTemplateError("recon_pair_incomplete", label)
+        if norm_text(label) in labels or norm_text(label) in FIELD_IDS:
+            raise ReconTemplateError("recon_pair_twice", label)
+        labels.add(norm_text(label))
+        extras.append({"label": label, "a": a["column"], "b": b["column"]})
+    if len(extras) > MAX_EXTRA_PAIRS:
+        raise ReconTemplateError("recon_too_many_pairs")
+    # One column of a report holds one field (a companion-row value is another row's column: it does not count).
+    for s in ("a", "b"):
+        used: dict[str, str] = {}
+        for f in FIELD_IDS:
+            src = fields[f][s]
+            if src and not src.get("by"):
+                if src["column"] in used:
+                    raise ReconTemplateError("recon_column_twice", src["column"])
+                used[src["column"]] = f
+        for e in extras:
+            if e[s] in used:
+                raise ReconTemplateError("recon_column_twice", e[s])
+            used[e[s]] = e["label"]
+    available = [f for f in COMPARABLE if fields[f]["a"] and fields[f]["b"]] + [f"extra:{e['label']}" for e in extras]
     by_norm = {norm_text(i): i for i in available}
     compare: list[str] = []
     for i in config.get("compare") or []:
@@ -129,10 +206,30 @@ def clean_config(config: dict, spec_a: dict, spec_b: dict) -> dict:
         "status_mode": raw["status_mode"] if raw.get("status_mode") in STATUS_MODES else "exact",
         "fallback_match": bool(raw.get("fallback_match")),
     }
-    if rules["fallback_match"] and not (field_source(spec_a, "date") and field_source(spec_b, "date")
-                                        and field_source(spec_a, "amount") and field_source(spec_b, "amount")):
+    if rules["fallback_match"] and not all(fields[f][s] for f in ("amount", "date") for s in ("a", "b")):
         raise ReconTemplateError("recon_fallback_needs_date")
-    return {"compare": compare, "rules": rules}
+    return {"fields": fields, "extras": extras, "compare": compare, "rules": rules}
+
+
+def side_spec(spec: dict, config: dict, side: str) -> dict:
+    """One layout as this template reads it: the template's columns for each field (a companion-row value as
+    a part), its added pairs as named fields, and the layout's own row filters, formats and status words."""
+    m = mapping_of(config, spec, spec)
+    fields = {f: None for f in FIELDS}
+    parts = []
+    for f in FIELD_IDS:
+        src = m["fields"][f][side]
+        if not src:
+            continue
+        if src.get("by"):
+            parts.append({"field": f, "column": src["column"], "by": src["by"], "values": src["values"]})
+        else:
+            fields[f] = src["column"]
+    layout = spec.get("fields") or {}
+    if layout.get("time") and fields["date"] and fields["date"] == layout.get("date"):
+        fields["time"] = layout["time"]  # a time column of its own belongs with the layout's date column
+    return {**spec, "fields": fields, "parts": parts,
+            "extras": [{"name": e["label"], "column": e[side]} for e in m["extras"]]}
 
 
 # --------------------------------------------------------------------------- running
@@ -234,6 +331,7 @@ def build_run(prof_a: dict, spec_a: dict, prof_b: dict, spec_b: dict, config: di
     `errors` is not empty. `swapped` is True when each file fits the other side's layout (the two files were
     uploaded the wrong way round).
     """
+    spec_a, spec_b = side_spec(spec_a, config, "a"), side_spec(spec_b, config, "b")
     needed = needed_fields(config)
     names = [c[6:] for c in config["compare"] if c.startswith("extra:")]
     side_a = resolve_side(prof_a, spec_a, needed, names)

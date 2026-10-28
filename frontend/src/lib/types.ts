@@ -472,6 +472,22 @@ export interface FieldSource {
   values?: string[];
 }
 
+/** A template's saved mapping: per field, the column of each report (null = that report does not have it). */
+export type FieldMapping = Record<string, { a: FieldSource | null; b: FieldSource | null }>;
+
+/** Two other columns a person paired, compared as text. */
+export interface ExtraPair {
+  label: string;
+  a: string;
+  b: string;
+}
+
+/** What one side of the template editor can pick: the layout's columns and its companion-row values. */
+export interface LayoutSources {
+  columns: string[];
+  parts: { column: string; by: string; values: string[]; field: string }[];
+}
+
 /** A field two layouts can be reconciled on: "key", "amount"… or "extra:Direction". */
 export interface FieldPair {
   id: string;
@@ -507,7 +523,7 @@ export interface ReconTemplate {
   layout_b: number;
   label_a: string;
   label_b: string;
-  config: { compare: string[]; rules: ReconRules };
+  config: { compare: string[]; rules: ReconRules; fields?: FieldMapping; extras?: ExtraPair[] };
   version: number;
   is_active: boolean;
   created_at: string;

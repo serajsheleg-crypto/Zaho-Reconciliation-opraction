@@ -764,6 +764,20 @@ const en = {
   "new.w.no_shared_references": "The two files have no reference in common: every record would show as missing. Check that both are the reports of this service and the same period.",
   "new.e.rows_filtered_out": "{side}: no row of this file is of the report type this template expects ({detail}). Check that it is the right report, for example the Hawli report of this service.",
   "new.rowsPart": "{field} read from {column} of the row where {by} is {values}",
+  "rt.suggested.help": "The columns below are suggested from the two report layouts. Check every row: change a column, set \"Not in this report\" when a report has no such column, or add a pair. What you save is what every run uses.",
+  "rt.suggested": "Suggested",
+  "rt.changed": "Changed · reset",
+  "rt.resetHelp": "Go back to the column the layouts suggest",
+  "rt.notMapped": "— Not in this report",
+  "rt.pickColumn": "Choose a column…",
+  "rt.pairName": "Name, e.g. Meter number",
+  "rt.addPair": "Add a pair of columns",
+  "rt.addPair.help": "Any other column of our report against a column of the other report, compared as text.",
+  "err.recon_unknown_column": "A chosen column is not in that report layout.",
+  "err.recon_column_twice": "One column is used for two fields of the same report.",
+  "err.recon_pair_incomplete": "Give every added pair a name and a column on both sides.",
+  "err.recon_pair_twice": "Two pairs have the same name.",
+  "err.recon_too_many_pairs": "At most 6 added pairs.",
 };
 
 type Dict = typeof en;
@@ -1510,6 +1524,20 @@ const ar: Record<TKey, string> = {
   "new.w.no_shared_references": "لا يوجد أي مرجع مشترك بين الملفين: ستظهر كل السجلات مفقودة. تأكد أن الملفين تقريرا هذه الخدمة وللفترة نفسها.",
   "new.e.rows_filtered_out": "{side}: لا يوجد في هذا الملف أي سطر من نوع التقرير الذي يتوقعه هذا القالب ({detail}). تأكد أنه التقرير الصحيح، مثل تقرير حولي لهذه الخدمة.",
   "new.rowsPart": "{field} من {column} في السطر الذي فيه {by} = {values}",
+  "rt.suggested.help": "الأعمدة أدناه مقترحة من شكلي التقريرين. راجع كل سطر: غيّر العمود، أو اختر «غير موجود في هذا التقرير» عندما لا يحتوي التقرير على هذا العمود، أو أضف زوجًا. ما تحفظه هو ما تستخدمه كل مطابقة.",
+  "rt.suggested": "مقترح",
+  "rt.changed": "مُعدّل · استرجاع",
+  "rt.resetHelp": "الرجوع إلى العمود الذي يقترحه شكلا التقريرين",
+  "rt.notMapped": "— غير موجود في هذا التقرير",
+  "rt.pickColumn": "اختر عمودًا…",
+  "rt.pairName": "الاسم، مثل رقم العداد",
+  "rt.addPair": "إضافة زوج أعمدة",
+  "rt.addPair.help": "أي عمود آخر من تقريرنا مقابل عمود من التقرير الآخر، يُقارن كنص.",
+  "err.recon_unknown_column": "عمود مختار غير موجود في شكل التقرير.",
+  "err.recon_column_twice": "عمود واحد مستخدم لحقلين في التقرير نفسه.",
+  "err.recon_pair_incomplete": "أعطِ كل زوج مضاف اسمًا وعمودًا في الطرفين.",
+  "err.recon_pair_twice": "زوجان بالاسم نفسه.",
+  "err.recon_too_many_pairs": "6 أزواج مضافة على الأكثر.",
 };
 
 const DICTS: Record<Lang, Record<string, string>> = { en, ar };

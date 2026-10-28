@@ -123,7 +123,9 @@ def test_clean_config_rejects_what_cannot_be_compared(layouts):
         rt.clean_config({"compare": ["amount"], "rules": {"fallback_match": True}}, ours, ams)
     assert err.value.code == "recon_fallback_needs_date"
     cfg = rt.clean_config({"compare": ["AMOUNT", "amount"], "rules": {"amount_tolerance": -5, "key_mode": "x"}}, ours, ams)
-    assert cfg == {"compare": ["amount"], "rules": {**rt.DEFAULT_CONFIG_RULES, "date_tolerance_days": 1}}
+    assert cfg["compare"] == ["amount"] and cfg["rules"] == {**rt.DEFAULT_CONFIG_RULES, "date_tolerance_days": 1}
+    # Without a mapping given, the layouts' suggestion is saved, explicitly.
+    assert cfg["fields"]["key"] == {"a": {"column": "ProviderReference"}, "b": {"column": "URN"}}
 
 
 def test_companion_row_layout_needs_a_filter():
@@ -388,9 +390,17 @@ def test_recon_templates_api(client, files):
     companies = {c["name"]: c for c in client.get("/api/companies").json()["items"]}
     r = client.delete(f"/api/companies/{companies['Moamalat']['id']}", headers=H)
     assert r.status_code == 409 and r.json()["detail"]["code"] == "layout_in_use"
+    # A template keeps the mapping it saved: retagging a layout's columns does not change it...
     no_amount = {**ams["spec"], "fields": {**ams["spec"]["fields"], "amount": None}}
     r = client.patch(f"/api/templates/{ams['id']}", json={"name": ams["name"], "spec": no_amount}, headers=H)
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "layout_breaks_templates"
+    assert r.status_code == 200
+    kept = client.get(f"/api/recon-templates/{top['id']}").json()
+    assert next(p for p in kept["pairs"] if p["id"] == "amount")["b"] == {"column": "Amount"}
+    # ...but a layout cannot lose a column a template reads (a newer sample without it).
+    from app.routers.companies import _check_dependents
+    with pytest.raises(Exception) as err:
+        _check_dependents(ams["id"], {**ams["spec"], "columns": [c for c in ams["spec"]["columns"] if c["name"] != "URN"]})
+    assert err.value.detail["code"] == "layout_breaks_templates"
 
     # ---- a viewer reads templates but cannot change or run them
     client.post("/api/users", json={"name": "V", "email": "v2@test.local", "password": "Viewer@2026x", "role": "viewer"},
@@ -523,3 +533,151 @@ def test_one_company_keeps_independent_layouts(client, files):
     after = {t["name"]: client.get(f"/api/templates/{t['id']}").json()["spec"] for t in zaho["templates"]
              if t["name"] in before}
     assert after == before
+
+
+
+# --------------------------------------------------------------------------- the template's own field mapping
+
+# The columns that hold the same information in each example pair, read from the example files (red headers).
+EXPECTED_MAPPINGS = {
+    "Khales — Libyana (خالص)": {
+        "key": ("ProviderReference", "Reference ID"), "amount": ("Amount", "Package value"),
+        "fee": ("Fee", "Zaho commission")},
+    "Local cards — Dogoon (كروت محلية)": {
+        "key": ("ProviderReference", "Reference"), "amount": ("Amount", "Amount"),
+        "fee": ("Fee", "Amount where Type = profit_customer")},
+    "Transactions — Moamalat (معاملات)": {
+        "key": ("ProviderReference", "URN"), "amount": ("Amount", "Amount"), "fee": ("Fee", None)},
+}
+
+
+def _show(src):
+    if not src:
+        return None
+    return f"{src['column']} where {src['by']} = {'/'.join(src['values'])}" if src.get("by") else src["column"]
+
+
+@pytest.mark.parametrize("name", list(RECONS))
+def test_choosing_two_layouts_suggests_the_example_mapping(layouts, name):
+    r = RECONS[name]
+    sug = rt.suggest(layouts[r["layout_a"]], layouts[r["layout_b"]])["fields"]
+    got = {f: (_show(sug[f]["a"]), _show(sug[f]["b"])) for f in EXPECTED_MAPPINGS[name]}
+    assert got == EXPECTED_MAPPINGS[name]
+
+
+def test_a_changed_mapping_is_saved_and_used(files, layouts, tmp_path):
+    """Khales with Libyana's fee taken from "1% fee" instead of "Zaho commission": the person's choice is what
+    the run compares, so every fee now differs."""
+    ours, lib = layouts["Hawli - Khales"], layouts["Libyana - Khales sales"]
+    base = recon_config("Khales — Libyana (خالص)", ours, lib)
+    fields = {**base["fields"], "fee": {"a": {"column": "Fee"}, "b": {"column": "1% fee"}}}
+    cfg = rt.clean_config({**base, "fields": fields}, ours, lib)
+    assert cfg["fields"]["fee"]["b"] == {"column": "1% fee"}
+    assert rt.pairs(ours, lib, cfg)[2] == {"id": "fee", "label": "fee", "a": {"column": "Fee"}, "b": {"column": "1% fee"}}
+    pa, fa = _prepare(files / "خالص-حولي.xlsx", tmp_path / "a.parquet")
+    pb, fb = _prepare(files / "خالص-ليبيانا.xlsx", tmp_path / "b.parquet")
+    built = rt.build_run(fa, ours, fb, lib, cfg)
+    assert built["errors"] == [] and built["mapping"]["b"]["fee"] == "1% fee"
+    rules = {**built["rules"], "approved_statuses": APPROVED, "template_statuses": {"a": ours["statuses"], "b": []}}
+    s = reconcile(run_dir=tmp_path / "run", path_a=pa, path_b=pb, mapping=built["mapping"], rules=rules,
+                  progress=lambda p, s: None, should_stop=lambda: False, run_id=1, max_db_rows=100)
+    got = {k: v["count"] for k, v in s["categories"].items() if v["count"]}
+    assert got == {"FEE_MISMATCH": 3, "MULTIPLE_MISMATCH": 1, "MISSING_IN_B": 1}  # was 2 matched + 1 fee mismatch
+
+
+def test_a_field_can_be_left_unmapped(layouts):
+    ours, lib = layouts["Hawli - Khales"], layouts["Libyana - Khales sales"]
+    base = recon_config("Khales — Libyana (خالص)", ours, lib)
+    fields = {**base["fields"], "fee": {"a": {"column": "Fee"}, "b": None}}
+    with pytest.raises(rt.ReconTemplateError) as err:  # an unmapped field cannot be compared
+        rt.clean_config({**base, "fields": fields}, ours, lib)
+    assert err.value.code == "recon_not_comparable"
+    cfg = rt.clean_config({**base, "fields": fields, "compare": ["amount"]}, ours, lib)
+    assert cfg["fields"]["fee"] == {"a": {"column": "Fee"}, "b": None}
+    assert rt.side_spec(lib, cfg, "b")["fields"]["fee"] is None
+
+
+def test_a_field_one_report_lacks_is_never_invented(layouts):
+    """Our Fee has no counterpart in the provider's AMS report: it stays unmapped on that side."""
+    cfg = recon_config("Transactions — Moamalat (معاملات)", layouts["Hawli - Transactions"],
+                       layouts["Moamalat - AMS transactions"])
+    assert cfg["fields"]["fee"] == {"a": {"column": "Fee"}, "b": None}
+    assert cfg["fields"]["status"]["b"] is None and cfg["fields"]["date"]["b"] is None
+
+
+def test_mapping_choices_are_checked(layouts):
+    ours, lib = layouts["Hawli - Khales"], layouts["Libyana - Khales sales"]
+    base = recon_config("Khales — Libyana (خالص)", ours, lib)
+    cases = [
+        ({"key": {"a": None, "b": {"column": "Reference ID"}}}, [], "recon_no_key"),
+        ({"amount": {"a": {"column": "Amount"}, "b": {"column": "Nope"}}}, [], "recon_unknown_column"),
+        ({"fee": {"a": {"column": "Fee"}, "b": {"column": "Package value"}}}, [], "recon_column_twice"),
+        ({}, [{"label": "Token", "a": "Number", "b": None}], "recon_pair_incomplete"),
+        ({}, [{"label": "Amount", "a": "Number", "b": "Token"}], "recon_pair_twice"),
+    ]
+    for fields, extras, code in cases:
+        with pytest.raises(rt.ReconTemplateError) as err:
+            rt.clean_config({**base, "fields": {**base["fields"], **fields}, "extras": extras}, ours, lib)
+        assert err.value.code == code, code
+
+
+def test_an_added_pair_is_compared_as_text(layouts, tmp_path):
+    """A pair of other columns a person adds (here Direction ↔ direction) is compared value by value."""
+    ours, dogoon = layouts["Hawli - Local Cards"], layouts["Dogoon - Transactions"]
+    base = recon_config("Local cards — Dogoon (كروت محلية)", ours, dogoon)
+    cfg = rt.clean_config({**base, "extras": [{"label": "Currency text", "a": "Channel", "b": "Account"}],
+                           "compare": ["amount", "extra:Currency text"]}, ours, dogoon)
+    assert cfg["extras"] == [{"label": "Currency text", "a": "Channel", "b": "Account"}]
+    pa, fa = _prepare(_csv(tmp_path / "a.csv", ["ServiceCode", "ProviderReference", "Amount", "Fee", "Channel"],
+                           [["LocalEvoucher", "R1", "10", "0.35", "PAPP"], ["LocalEvoucher", "R2", "5", "0.1", "X"]]),
+                      tmp_path / "a.parquet")
+    pb, fb = _prepare(_csv(tmp_path / "b.csv", ["Type", "Reference", "Amount", "Account"],
+                           [["purchase", "R1", "-10", "papp"], ["profit_customer", "R1", "0.35", "papp"],
+                            ["purchase", "R2", "-5", "Y"], ["profit_customer", "R2", "0.1", "Y"]]), tmp_path / "b.parquet")
+    built = rt.build_run(fa, ours, fb, dogoon, cfg)
+    assert built["errors"] == [] and built["mapping"]["extras"] == [{"a": "Channel", "b": "Account", "label": "Currency text"}]
+    s = reconcile(run_dir=tmp_path / "run", path_a=pa, path_b=pb, mapping=built["mapping"],
+                  rules={**built["rules"], "approved_statuses": APPROVED}, progress=lambda p, s: None,
+                  should_stop=lambda: False, run_id=1, max_db_rows=10)
+    assert {k: v["count"] for k, v in s["categories"].items() if v["count"]} == {"MATCHED": 1, "FIELD_MISMATCH": 1}
+
+
+def test_mapping_is_saved_reloaded_and_used_by_runs(client, files):
+    """Through the API: the editor's suggestion, a changed column saved, read back unchanged, used by the run and
+    kept in the run's copy; a template saved before mappings existed still runs with its layouts' suggestion."""
+    login(client)
+    zaho_k = _layout_once(client, "Hawli - Khales", files / "خالص-حولي.xlsx")
+    lib = _layout_once(client, "Libyana - Khales sales", files / "خالص-ليبيانا.xlsx")
+    edit = client.post("/api/recon-templates/pairs", json={"layout_a": zaho_k["id"], "layout_b": lib["id"]}, headers=H).json()
+    assert edit["suggestion"]["fields"]["fee"] == {"a": {"column": "Fee"}, "b": {"column": "Zaho commission"}}
+    assert "1% fee" in edit["sources"]["b"]["columns"] and "ProviderReference" in edit["sources"]["a"]["columns"]
+    fields = {**edit["suggestion"]["fields"], "fee": {"a": {"column": "Fee"}, "b": {"column": "1% fee"}}}
+    body = {**_body("Khales — Libyana (خالص)", zaho_k, lib), "name": "Khales mapped by hand", "fields": fields}
+    made = client.post("/api/recon-templates", json=body, headers=H)
+    assert made.status_code == 200, made.text
+    t = client.get(f"/api/recon-templates/{made.json()['id']}").json()  # reloaded from MySQL
+    assert t["config"]["fields"]["fee"]["b"] == {"column": "1% fee"}
+    assert next(p for p in t["pairs"] if p["id"] == "fee")["b"] == {"column": "1% fee"}
+    a, b = upload(client, files / "خالص-حولي.xlsx"), upload(client, files / "خالص-ليبيانا.xlsx")
+    run_id = client.post(f"/api/recon-templates/{t['id']}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]},
+                         headers=H).json()["id"]
+    run = wait(client, f"/api/runs/{run_id}")
+    assert run["config"]["mapping"]["b"]["fee"] == "1% fee"
+    assert run["config"]["rules"]["recon_template"]["config"]["fields"]["fee"]["b"] == {"column": "1% fee"}
+    assert run["summary"]["categories"]["FEE_MISMATCH"]["count"] == 3
+    # Editing the mapping back is a new version; the run keeps what it used.
+    fields["fee"] = {"a": {"column": "Fee"}, "b": {"column": "Zaho commission"}}
+    r = client.patch(f"/api/recon-templates/{t['id']}", json={**body, "fields": fields, "version": t["version"]}, headers=H)
+    assert r.status_code == 200 and r.json()["version"] == t["version"] + 1
+    assert client.get(f"/api/runs/{run_id}").json()["config"]["mapping"]["b"]["fee"] == "1% fee"
+
+    # A template saved before mappings were saved (config without "fields") runs with its layouts' suggestion.
+    from app import db
+    tid = db.execute("INSERT INTO recon_templates (name, layout_a, layout_b, label_a, label_b, config) VALUES "
+                     "(:n, :a, :b, 'Zaho', 'Libyana', :c)", n="Khales old style", a=zaho_k["id"], b=lib["id"],
+                     c=db.to_json({"compare": ["amount", "fee"], "rules": {}}))
+    old = client.get(f"/api/recon-templates/{tid}").json()
+    assert next(p for p in old["pairs"] if p["id"] == "fee")["b"] == {"column": "Zaho commission"}
+    run_id = client.post(f"/api/recon-templates/{tid}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]},
+                         headers=H).json()["id"]
+    assert wait(client, f"/api/runs/{run_id}")["config"]["mapping"]["b"]["fee"] == "Zaho commission"

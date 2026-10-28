@@ -3069,3 +3069,19 @@ table.data tr.skipped-row td:last-child {
   align-items: flex-end;
   min-width: 140px;
 }
+
+.pair-table.mapping .select.sm {
+  min-width: 170px;
+  max-width: 280px;
+}
+.map-badge,
+.map-reset {
+  margin-top: 4px;
+}
+.map-reset {
+  padding-inline: 6px;
+  color: var(--medium);
+}
+.map-reset svg {
+  width: 13px;
+}
