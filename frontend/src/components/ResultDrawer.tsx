@@ -125,6 +125,15 @@ export default function ResultDrawer({
           b: (it[`x${i}_b`] as string) ?? null,
           diff: mismatch.has(`extra:${i}`),
         })),
+        // A calculation check is one report's own arithmetic: what it wrote, and what its formula gives.
+        ...(d!.mapping.checks ?? []).map((c, i) => {
+          const v = it[`check_${i}_value`] as number | null;
+          const e = it[`check_${i}_expected`] as number | null;
+          const cell = v == null && e == null ? null : (
+            <span className="tnum">{fmtMoney(v)} <span className="faint small">· {t("dr.byFormula", { value: fmtMoney(e) })}</span></span>
+          );
+          return { field: c.label, a: c.side === "a" ? cell : null, b: c.side === "b" ? cell : null, diff: mismatch.has(`check:${i}`) };
+        }),
       ]
     : [];
 
@@ -148,7 +157,8 @@ export default function ResultDrawer({
         <>
           <div className={clsx("why-box", it.category === "MATCHED" && "ok")}>
             <span className="label">{t("col.why")}</span>
-            <Why items={explain(it, t, labelA, labelB, d.mapping.extras.map((e) => e.label || e.a))} a={labelA} b={labelB} />
+            <Why items={explain(it, t, labelA, labelB, d.mapping.extras.map((e) => e.label || e.a), (d.mapping.checks ?? []).map((c) => c.label))}
+              a={labelA} b={labelB} />
           </div>
           <div className="panel" style={{ overflow: "hidden" }}>
             <table className="compare">

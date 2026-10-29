@@ -20,7 +20,7 @@ import { Confirm, ErrorBox, Loading, Notice, Pager, Popover, useAsync, usePoll, 
 const STAGES = ["loading_a", "loading_b", "matching", "fallback", "comparing", "writing", "summarizing", "saving_db"];
 const EXC_ORDER = [
   "MULTIPLE_MISMATCH", "STATUS_MISMATCH", "AMOUNT_MISMATCH", "FEE_MISMATCH", "MISSING_IN_B", "MISSING_IN_A", "DUPLICATE_A", "DUPLICATE_B", "REF_MISMATCH",
-  "CURRENCY_MISMATCH", "DATE_MISMATCH", "FIELD_MISMATCH", "NO_KEY_A", "NO_KEY_B",
+  "CURRENCY_MISMATCH", "DATE_MISMATCH", "FIELD_MISMATCH", "NO_KEY_A", "NO_KEY_B", "CALC_MISMATCH",
 ];
 
 export default function RunDetail() {
@@ -213,6 +213,14 @@ export default function RunDetail() {
             {hasQualityIssues(s) && <Quality s={s} a={a} b={b} />}
           </div>
 
+          {(!!s.checks?.length || Object.keys(s.compared.calculated?.b ?? {}).length > 0 ||
+            Object.keys(s.compared.calculated?.a ?? {}).length > 0) && (
+            <Calculations s={s} a={a} b={b} show={() => {
+              setCategory("CALC_MISMATCH");
+              document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
+            }} />
+          )}
+
           <Results run={r} category={category} setCategory={setCategory} onChanged={run.reload} />
         </>
       )}
@@ -311,6 +319,96 @@ function FeeTotals({ a, b, fa, fb }: { a: string; b: string; fa: number; fb: num
       <b>{t("role.fee")}</b>: {a} <b className="tnum">{fmtMoney(fa)}</b> · {b} <b className="tnum">{fmtMoney(fb)}</b> ·{" "}
       <b className="tnum" style={{ color: Math.abs(diff) > 0.004 ? "var(--critical)" : "var(--green-ink)" }}>{fmtSigned(diff)}</b>
     </p>
+  );
+}
+
+/**
+ * Two separate answers: does each report's fee agree with the other's (the calculated field, compared like any
+ * field), and are one report's own numbers right (the calculation checks, on every row of that report).
+ */
+function Calculations({ s, a, b, show }: { s: NonNullable<Run["summary"]>; a: string; b: string; show: () => void }) {
+  const { t } = useI18n();
+  const calc = s.compared.calculated ?? { a: {}, b: {} };
+  const formulas = (["a", "b"] as const).flatMap((side) => Object.entries(calc[side]).map(([field, f]) => ({ side, field, f })));
+  const name = (side: "a" | "b") => (side === "a" ? a : b);
+  const failedRows = s.categories.CALC_MISMATCH?.count ?? 0;
+  return (
+    <section className="panel" style={{ overflow: "hidden" }}>
+      <div className="panel-head" style={{ paddingBottom: 10 }}>
+        <div>
+          <h2>{t("run.calc")}</h2>
+          <p>{t("run.calc.help", { a, b })}</p>
+        </div>
+      </div>
+      {formulas.length > 0 && (
+        <div className="panel-body stack" style={{ gap: 8, borderTop: "1px solid var(--line)" }}>
+          <h3 className="small" style={{ margin: 0 }}>{t("run.calc.fields", { a, b })}</h3>
+          {formulas.map(({ side, field, f }) => {
+            const n = s.mismatch_counts?.[field] ?? 0;
+            const compared = field === "fee" ? !!s.compared.fee : s.compared.amount;
+            return (
+              <div key={side + field} className="row between" style={{ flexWrap: "wrap", gap: 8 }}>
+                <span>
+                  <span className={clsx("side-tag", side)}>{name(side)}</span>{" "}
+                  <b>{t(`role.${field}`)}</b> = <code className="ltr">{f}</code>
+                </span>
+                {!compared ? (
+                  <span className="small muted">{t("run.calc.notCompared")}</span>
+                ) : (
+                  <b style={{ color: n ? "var(--critical)" : "var(--green-ink)" }}>
+                    {n ? t("run.calc.differ", { n: fmtInt(n), field: t(`role.${field}`) }) : t("run.calc.agree", { field: t(`role.${field}`) })}
+                  </b>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!!s.checks?.length && (
+        <>
+          <div className="panel-body" style={{ borderTop: "1px solid var(--line)", paddingBottom: 6 }}>
+            <h3 className="small" style={{ margin: 0 }}>{t("run.calc.checks")}</h3>
+          </div>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>{t("run.calc.check")}</th>
+                <th>{t("run.calc.formula")}</th>
+                <th className="num">{t("run.calc.checked")}</th>
+                <th className="num">{t("run.calc.failed")}</th>
+                <th className="num">{t("run.calc.unreadable")}</th>
+                <th className="num">{t("run.difference")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.checks.map((c) => (
+                <tr key={c.label}>
+                  <td>
+                    <span className={clsx("side-tag", c.side)}>{name(c.side)}</span> <b>{c.label}</b>
+                    <div className="small muted">{t("run.calc.column", { column: c.column })}</div>
+                  </td>
+                  <td><code className="ltr small">{c.formula}</code></td>
+                  <td className="num tnum">{fmtInt(c.checked)}</td>
+                  <td className="num tnum" style={{ color: c.failed ? "var(--critical)" : "var(--green-ink)", fontWeight: 600 }}>{fmtInt(c.failed)}</td>
+                  <td className="num tnum">{c.unreadable ? fmtInt(c.unreadable) : "—"}</td>
+                  <td className="num tnum">{c.failed ? fmtMoney(c.difference) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="panel-body small muted">
+            {failedRows > 0 ? (
+              <>
+                {t("run.calc.onlyCalc", { n: fmtInt(failedRows) })}{" "}
+                <button className="btn sm" onClick={show}>{t("run.calc.show")}</button>
+              </>
+            ) : (
+              t("run.calc.where")
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -480,6 +578,7 @@ function Results({ run, category, setCategory, onChanged }: { run: Run; category
     [s, t, a, b],
   );
   const extras = s.compared.extras;
+  const checks = (s.checks ?? []).map((c) => c.label);
   return (
     <section className="panel" id="results" style={{ overflow: "hidden" }}>
       <div className="panel-head" style={{ paddingBottom: 12 }}>
@@ -533,7 +632,7 @@ function Results({ run, category, setCategory, onChanged }: { run: Run; category
                     {r.key_a && r.key_b && r.key_a !== r.key_b && <div className="ref small" style={{ color: "var(--critical)" }}>{r.key_b}</div>}
                   </td>
                   <td>
-                    <Why items={explain(r, t, a, b, extras)} a={a} b={b} />
+                    <Why items={explain(r, t, a, b, extras, checks)} a={a} b={b} />
                   </td>
                   <td className={clsx("num", mm.has("amount") && "diff")}>{r.row_a == null ? <span className="faint">—</span> : fmtMoney(r.amount_a)}</td>
                   <td className={clsx("num", mm.has("amount") && "diff")}>{r.row_b == null ? <span className="faint">—</span> : fmtMoney(r.amount_b)}</td>

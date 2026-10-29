@@ -20,7 +20,7 @@ absent. Nothing in here touches the database.
 from __future__ import annotations
 
 from .normalize import norm_text
-from .reconcile import DEFAULT_RULES, PART_FIELDS, part_column
+from .reconcile import DEFAULT_RULES, FORMULA_FIELDS, MAX_TERMS, PART_FIELDS, calc_column, part_column
 from .templates import FIELDS, _header_key
 
 COMPARABLE = ("amount", "fee", "status", "date", "currency")
@@ -58,6 +58,16 @@ class ReconTemplateError(Exception):
 
 FIELD_IDS = ("key", *COMPARABLE)
 MAX_EXTRA_PAIRS = 6
+MAX_CHECKS = 6
+
+# A source can also be calculated, for the amount or the fee only: {"formula": {"terms": [{"column", "sign"}],
+# "factor", "round"}} = ROUND((±column ± column …) × factor, round) of that report's columns. The factor is the
+# template's own setting (a business rule that may change), never something the engine knows.
+#
+# A template can also check one report's own arithmetic ("checks"): [{"label", "side", "column", "terms",
+# "factor", "round", "tolerance"}]: the column must hold what the formula of the report's other columns gives.
+# A failed check is shown on its own (CALC_MISMATCH, and per check in the summary), apart from any difference
+# between the two reports.
 
 
 def _part(spec: dict, field: str) -> dict | None:
@@ -123,13 +133,50 @@ def _number(v, lo: float, hi: float, default: float) -> float:
     return x if lo <= x <= hi else default
 
 
+def _formula(spec: dict, f, where: str) -> dict:
+    """A formula checked against a layout: 1..6 of its columns, each added or subtracted, a factor above zero and
+    0..6 decimals (or no rounding)."""
+    if not isinstance(f, dict):
+        raise ReconTemplateError("recon_bad_formula", where)
+    names = {c["name"] for c in spec.get("columns") or []}
+    terms = []
+    for t in f.get("terms") or []:
+        col = str((t or {}).get("column") or "").strip()
+        if not col:
+            continue
+        if names and col not in names:
+            raise ReconTemplateError("recon_unknown_column", col)
+        terms.append({"column": col, "sign": -1 if int((t or {}).get("sign") or 1) < 0 else 1})
+    if not 0 < len(terms) <= MAX_TERMS:
+        raise ReconTemplateError("recon_bad_formula", where)
+    factor = _number(f.get("factor", 1), 1e-9, 1e6, -1)
+    if factor <= 0:
+        raise ReconTemplateError("recon_bad_factor", where)
+    rnd = f.get("round")
+    if rnd not in (None, ""):
+        try:
+            rnd = int(rnd)
+        except (TypeError, ValueError):
+            raise ReconTemplateError("recon_bad_formula", where) from None
+        if not 0 <= rnd <= 6:
+            raise ReconTemplateError("recon_bad_formula", where)
+    else:
+        rnd = None
+    return {"terms": terms, "factor": factor, "round": rnd}
+
+
 def _source(spec: dict, src, field: str) -> dict | None:
-    """A side's column for a field, checked against that layout: one of its columns, or one of its companion-row
-    values (only the amount or the fee can come from a companion row)."""
+    """A side's column for a field, checked against that layout: one of its columns, one of its companion-row
+    values (only the amount or the fee can come from a companion row), or a formula of its columns (the amount
+    or the fee)."""
     if not src:
         return None
     if isinstance(src, str):
         src = {"column": src}
+    if src.get("formula") is not None:
+        if field not in FORMULA_FIELDS:
+            raise ReconTemplateError("recon_bad_formula", field)
+        return {"formula": _formula(spec, src["formula"], field)}
     col = str(src.get("column") or "").strip()
     if not col:
         return None
@@ -176,7 +223,7 @@ def clean_config(config: dict, spec_a: dict, spec_b: dict) -> dict:
         used: dict[str, str] = {}
         for f in FIELD_IDS:
             src = fields[f][s]
-            if src and not src.get("by"):
+            if src and not src.get("by") and not src.get("formula"):
                 if src["column"] in used:
                     raise ReconTemplateError("recon_column_twice", src["column"])
                 used[src["column"]] = f
@@ -208,7 +255,25 @@ def clean_config(config: dict, spec_a: dict, spec_b: dict) -> dict:
     }
     if rules["fallback_match"] and not all(fields[f][s] for f in ("amount", "date") for s in ("a", "b")):
         raise ReconTemplateError("recon_fallback_needs_date")
-    return {"fields": fields, "extras": extras, "compare": compare, "rules": rules}
+    checks, names = [], set()
+    for c in config.get("checks") or []:
+        label = str(c.get("label") or "").strip()[:80]
+        side = c.get("side")
+        if not label or side not in ("a", "b"):
+            raise ReconTemplateError("recon_check_incomplete", label)
+        if norm_text(label) in names:
+            raise ReconTemplateError("recon_check_twice", label)
+        names.add(norm_text(label))
+        spec = spec_a if side == "a" else spec_b
+        target = _source(spec, c.get("column"), "check")
+        if not target:
+            raise ReconTemplateError("recon_check_incomplete", label)
+        f = _formula(spec, c, label)
+        checks.append({"label": label, "side": side, "column": target["column"], **f,
+                       "tolerance": _number(c.get("tolerance"), 0, 1e9, 0.0)})
+    if len(checks) > MAX_CHECKS:
+        raise ReconTemplateError("recon_too_many_checks")
+    return {"fields": fields, "extras": extras, "compare": compare, "rules": rules, "checks": checks}
 
 
 def side_spec(spec: dict, config: dict, side: str) -> dict:
@@ -216,19 +281,22 @@ def side_spec(spec: dict, config: dict, side: str) -> dict:
     a part), its added pairs as named fields, and the layout's own row filters, formats and status words."""
     m = mapping_of(config, spec, spec)
     fields = {f: None for f in FIELDS}
-    parts = []
+    parts, formulas = [], []
     for f in FIELD_IDS:
         src = m["fields"][f][side]
         if not src:
             continue
-        if src.get("by"):
+        if src.get("formula"):
+            formulas.append({"field": f, **src["formula"]})
+        elif src.get("by"):
             parts.append({"field": f, "column": src["column"], "by": src["by"], "values": src["values"]})
         else:
             fields[f] = src["column"]
     layout = spec.get("fields") or {}
     if layout.get("time") and fields["date"] and fields["date"] == layout.get("date"):
         fields["time"] = layout["time"]  # a time column of its own belongs with the layout's date column
-    return {**spec, "fields": fields, "parts": parts,
+    return {**spec, "fields": fields, "parts": parts, "formulas": formulas,
+            "checks": [c for c in config.get("checks") or [] if c.get("side") == side],
             "extras": [{"name": e["label"], "column": e[side]} for e in m["extras"]]}
 
 
@@ -285,6 +353,22 @@ def resolve_side(profile: dict, spec: dict, needed: set[str], extras: list[str])
         if col and by:
             parts.append({**p, "column": col, "by": by})
             m[p["field"]] = part_column(p["field"])
+    formulas = []
+    for f in spec.get("formulas") or []:
+        if f.get("field") not in FORMULA_FIELDS:
+            continue
+        required = f["field"] in needed
+        terms = [{**t, "column": need(f["field"], t["column"], required)} for t in f["terms"]]
+        if all(t["column"] for t in terms):
+            formulas.append({**f, "terms": terms})
+            m[f["field"]] = calc_column(f["field"])
+    # A check of the report's own arithmetic: every column it reads must be there, or the check cannot be made.
+    checks = []
+    for c in spec.get("checks") or []:
+        names = [need(f"check:{c['label']}", n, True) for n in [c["column"]] + [t["column"] for t in c["terms"]]]
+        if all(names):
+            checks.append({**c, "column": names[0],
+                           "terms": [{**t, "column": n} for t, n in zip(c["terms"], names[1:])]})
     filters = []
     for f in spec.get("filters") or []:
         # A filter decides which rows are transactions: without its column the whole file would be misread.
@@ -309,12 +393,14 @@ def resolve_side(profile: dict, spec: dict, needed: set[str], extras: list[str])
         date_serial=bool(spec.get("date_serial") or (date or {}).get("date_serial")),
         filters=filters,
         parts=parts,
+        formulas=formulas,
         skip_no_key=bool(spec.get("skip_no_key")),
     )
     known = {c["name"] for c in spec.get("columns") or []}
     known_keys = {_header_key(c) for c in known}
     unexpected = [c for c in cols if known and c not in known and _header_key(c) not in known_keys]
-    return {"mapping": m, "extras": named, "errors": errors, "warnings": warnings, "unexpected": unexpected}
+    return {"mapping": m, "extras": named, "checks": checks, "errors": errors, "warnings": warnings,
+            "unexpected": unexpected}
 
 
 def required_columns(spec: dict, config: dict) -> list[str]:
@@ -324,6 +410,8 @@ def required_columns(spec: dict, config: dict) -> list[str]:
     fields = spec.get("fields") or {}
     cols = [fields[f] for f in needed if fields.get(f)]
     cols += [p[k] for p in spec.get("parts") or [] if p["field"] in needed for k in ("column", "by")]
+    cols += [t["column"] for f in spec.get("formulas") or [] if f["field"] in needed for t in f["terms"]]
+    cols += [n for c in spec.get("checks") or [] for n in [c["column"]] + [t["column"] for t in c["terms"]]]
     cols += [f["column"] for f in spec.get("filters") or []]
     names = {c[6:] for c in config["compare"] if c.startswith("extra:")}
     cols += [e["column"] for e in spec.get("extras") or [] if e["name"] in names]
@@ -392,7 +480,8 @@ def build_run(prof_a: dict, spec_a: dict, prof_b: dict, spec_b: dict, config: di
         "status_mode": r["status_mode"],
         "status_map": {"a": {}, "b": {}},
     }
-    return {"mapping": {"a": ma, "b": mb, "extras": extras}, "rules": rules, "errors": errors,
+    checks = side_a["checks"] + side_b["checks"]
+    return {"mapping": {"a": ma, "b": mb, "extras": extras, "checks": checks}, "rules": rules, "errors": errors,
             "warnings": warnings, "unexpected": {"a": side_a["unexpected"], "b": side_b["unexpected"]},
             "swapped": swapped}
 

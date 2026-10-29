@@ -47,6 +47,7 @@ class ExportContext:
         self.lang = lang if lang in ("en", "ar") else "en"
         self.a, self.b = run["label_a"], run["label_b"]
         self.extras = [e.get("label") or e["a"] for e in (config.get("mapping", {}).get("extras") or [])]
+        self.checks = [c.get("label") or c["column"] for c in (config.get("mapping", {}).get("checks") or [])]
         self.fee = bool((summary.get("compared") or {}).get("fee"))
         self.workflow = workflow or (lambda category: {})
 
@@ -85,6 +86,9 @@ class ExportContext:
                      ("r.fee_diff", self.t("col.fee_diff"), "money")]
         for i, name in enumerate(self.extras):
             cols += [(f"r.x{i}_a", f"{name} ({a})", f"extra_a:{i}"), (f"r.x{i}_b", f"{name} ({b})", f"extra_b:{i}")]
+        for i, name in enumerate(self.checks):
+            cols += [(f"r.check_{i}_value", self.t("col.check_value", name=name), f"check_value:{i}"),
+                     (f"r.check_{i}_expected", self.t("col.check_expected", name=name), f"check_expected:{i}")]
         return cols
 
     def source_columns(self, con) -> tuple[list[str], list[str]]:
@@ -258,7 +262,8 @@ def _excel_row(ws, r: int, rec: tuple, kinds: list[str], F: dict, ctx: ExportCon
     n = len(kinds)
     for j, kind in enumerate(kinds):
         v = rec[j]
-        bad = flags.get(kind, False) or (kind.startswith("extra_") and f"extra:{kind.split(':')[1]}" in mismatch)
+        bad = flags.get(kind, False) or (kind.startswith("extra_") and f"extra:{kind.split(':')[1]}" in mismatch) \
+            or (kind.startswith("check_") and f"check:{kind.split(':')[1]}" in mismatch)
         if kind == "mismatch":  # every record says, in words and with both values, what differs
             ws.write_string(r, j, explain(ctx, dict(zip(kinds, rec))), F["cell"])
         elif v is None:
@@ -271,7 +276,7 @@ def _excel_row(ws, r: int, rec: tuple, kinds: list[str], F: dict, ctx: ExportCon
             ws.write_string(r, j, ctx.t(v), F["cell"])
         elif kind in ("status_a", "status_b"):
             ws.write_string(r, j, ctx.t(v), F["bad"] if bad else F["cell"])
-        elif kind in ("amount_a", "amount_b", "fee_a", "fee_b", "money"):
+        elif kind in ("amount_a", "amount_b", "fee_a", "fee_b", "money") or kind.startswith("check_"):
             ws.write_number(r, j, float(v), F["bad_money"] if bad else F["money"])
         elif kind == "int":
             ws.write_number(r, j, int(v), F["cell"])
@@ -316,10 +321,10 @@ def explain(ctx: ExportContext, rec: dict) -> str:
     single = {"MISSING_IN_B": ("why.only", ctx.a), "MISSING_IN_A": ("why.only", ctx.b),
               "DUPLICATE_A": ("why.twice", ctx.a), "DUPLICATE_B": ("why.twice", ctx.b),
               "NO_KEY_A": ("why.no_ref", ctx.a), "NO_KEY_B": ("why.no_ref", ctx.b)}
+    out = []
     if cat in single:
         key, side = single[cat]
-        return ctx.t(key, side=side, other=ctx.b if side == ctx.a else ctx.a)
-    out = []
+        out.append(ctx.t(key, side=side, other=ctx.b if side == ctx.a else ctx.a))
     for part in [p for p in (rec.get("mismatch") or "").split(",") if p]:
         name = _mismatch_label(ctx, part)
         if part == "reference":
@@ -340,6 +345,9 @@ def explain(ctx: ExportContext, rec: dict) -> str:
         elif part.startswith("extra:"):
             i = part.split(":")[1]
             out.append(f"{name}: {_plain(rec.get(f'extra_a:{i}'))} ≠ {_plain(rec.get(f'extra_b:{i}'))}")
+        elif part.startswith("check:"):
+            i = part.split(":")[1]
+            out.append(f"{name}: {_plain(rec.get(f'check_value:{i}'))} ≠ {_plain(rec.get(f'check_expected:{i}'))}")
     return " · ".join(out)
 
 
@@ -347,6 +355,9 @@ def _mismatch_label(ctx: ExportContext, part: str) -> str:
     if part.startswith("extra:"):
         i = int(part.split(":")[1])
         return ctx.extras[i] if i < len(ctx.extras) else part
+    if part.startswith("check:"):
+        i = int(part.split(":")[1])
+        return ctx.checks[i] if i < len(ctx.checks) else part
     return {"reference": ctx.t("col.key"), "status": ctx.t("col.status"), "amount": ctx.t("col.amount"),
             "date": ctx.t("col.date"), "currency": ctx.t("col.currency"), "fee": ctx.t("col.fee")}.get(part, part)
 
@@ -575,6 +586,7 @@ def export_json(ctx: ExportContext, out: Path, progress: Progress, include_match
                 "status_b_raw", "date_a", "date_b", "date_diff_days", "currency_a", "currency_b"]
         cols += ["fee_a", "fee_b", "fee_diff"] if ctx.fee else []
         cols += [f"x{i}_{s}" for i in range(len(ctx.extras)) for s in ("a", "b")]
+        cols += [f"check_{i}_{k}" for i in range(len(ctx.checks)) for k in ("value", "expected")]
         where = "TRUE" if include_matched else "category <> 'MATCHED'"
         cur = con.execute(f"SELECT {', '.join(cols)} FROM read_parquet({q_path(ctx.results)}) "
                           f"WHERE {where} ORDER BY result_id")
@@ -585,6 +597,7 @@ def export_json(ctx: ExportContext, out: Path, progress: Progress, include_match
                 "summary": ctx.summary,
                 "rules": ctx.config.get("rules"),
                 "extras": ctx.extras,
+                "checks": ctx.checks,
             }
             fh.write(json.dumps(head, ensure_ascii=False, default=_json_default)[:-1])
             fh.write(', "results": [\n')

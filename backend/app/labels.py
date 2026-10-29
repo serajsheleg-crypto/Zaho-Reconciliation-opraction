@@ -21,6 +21,7 @@ LABELS: dict[str, dict[str, str]] = {
         "FIELD_MISMATCH": "Field mismatch",
         "NO_KEY_A": "No reference at {a}",
         "NO_KEY_B": "No reference at {b}",
+        "CALC_MISMATCH": "Calculation error in a report",
         "MATCHED": "Matched",
         "critical": "Critical", "high": "High", "medium": "Medium", "low": "Low",
         "SUCCESS": "Success", "FAILED": "Failed", "PENDING": "Pending", "CANCELLED": "Cancelled",
@@ -54,6 +55,7 @@ LABELS: dict[str, dict[str, str]] = {
         "why.matched": "Everything compared agrees", "why.only": "Only in {side}'s file, not in {other}'s",
         "why.twice": "{side} lists this reference more times than {other}", "why.no_ref": "No reference in {side}'s file",
         "why.by_amount": "paired by amount and day",
+        "col.check_value": "{name}: as written", "col.check_expected": "{name}: by the formula",
     },
     "ar": {
         "MULTIPLE_MISMATCH": "اختلافات متعددة",
@@ -70,6 +72,7 @@ LABELS: dict[str, dict[str, str]] = {
         "FIELD_MISMATCH": "اختلاف في حقل",
         "NO_KEY_A": "بدون مرجع لدى {a}",
         "NO_KEY_B": "بدون مرجع لدى {b}",
+        "CALC_MISMATCH": "خطأ حسابي في أحد التقريرين",
         "MATCHED": "متطابقة",
         "critical": "حرجة", "high": "عالية", "medium": "متوسطة", "low": "منخفضة",
         "SUCCESS": "ناجحة", "FAILED": "فاشلة", "PENDING": "قيد المعالجة", "CANCELLED": "ملغاة",
@@ -103,6 +106,7 @@ LABELS: dict[str, dict[str, str]] = {
         "why.matched": "كل ما تمت مقارنته متطابق", "why.only": "موجودة في ملف {side} فقط، وغير موجودة لدى {other}",
         "why.twice": "يذكر {side} هذا المرجع مرات أكثر من {other}", "why.no_ref": "بدون مرجع في ملف {side}",
         "why.by_amount": "رُبطت بالمبلغ واليوم",
+        "col.check_value": "{name}: كما ورد", "col.check_expected": "{name}: حسب المعادلة",
     },
 }
 

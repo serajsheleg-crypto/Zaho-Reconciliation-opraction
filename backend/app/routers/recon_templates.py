@@ -94,6 +94,9 @@ class TemplateIn(BaseModel):
     # Left out, the two layouts' suggestion is saved.
     fields: dict | None = None
     extras: list[dict] | None = Field(default=None, max_length=12)
+    # Checks of one report's own arithmetic [{label, side, column, terms, factor, round, tolerance}]; left out
+    # on an edit, the template keeps the ones it has.
+    checks: list[dict] | None = Field(default=None, max_length=12)
     rules: dict = Field(default_factory=dict)
     is_active: bool = True
     # The version the person was editing; a newer saved version is never overwritten silently.
@@ -111,11 +114,12 @@ def _layouts(a: int, b: int) -> tuple[dict, dict]:
     return la, lb
 
 
-def _config(body: TemplateIn) -> str:
+def _config(body: TemplateIn, old: dict | None = None) -> str:
     la, lb = _layouts(body.layout_a, body.layout_b)
+    checks = body.checks if body.checks is not None else ((old or {}).get("config") or {}).get("checks")
     try:
         return db.to_json(rt.clean_config({"compare": body.compare, "rules": body.rules, "fields": body.fields,
-                                           "extras": body.extras}, la["spec"], lb["spec"]))
+                                           "extras": body.extras, "checks": checks}, la["spec"], lb["spec"]))
     except rt.ReconTemplateError as exc:
         raise fail(400, exc.code, f"The reconciliation template is not valid: {exc.detail or exc.code}.")
 
@@ -148,7 +152,7 @@ def update_template(tid: int, body: TemplateIn, request: Request, user: dict = D
     name = body.name.strip()
     if _name_taken(name, tid):
         raise fail(409, "recon_template_exists", "A reconciliation template with this name already exists.")
-    config = _config(body)
+    config = _config(body, old)
     # The version check is repeated in the UPDATE itself, so two saves at the same moment cannot both win.
     n = db.execute(
         "UPDATE recon_templates SET name=:n, description=:d, layout_a=:a, layout_b=:b, label_a=:la, label_b=:lb, "

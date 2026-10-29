@@ -21,11 +21,18 @@ const CHECK_ROWS: { key: keyof CheckSide; problem: boolean }[] = [
   { key: "bad_fee", problem: true },
 ];
 
-/** The columns one file must have for this template: the key, the compared fields and the row filters. */
+/** The columns one file must have for this template: the key, the compared fields (every column of a calculated
+ * one) and the row filters. */
 function needed(pairs: FieldPair[], compare: string[], side: Side, filters: string[]): string[] {
   const cols = pairs
     .filter((p) => p.id === "key" || compare.includes(p.id))
-    .flatMap((p) => (p[side] ? [p[side]!.column, ...(p[side]!.by ? [p[side]!.by!] : [])] : []));
+    .flatMap((p) => {
+      const src = p[side];
+      if (!src) return [];
+      if (src.formula) return src.formula.terms.map((x) => x.column);
+      return [src.column ?? "", ...(src.by ? [src.by] : [])];
+    })
+    .filter(Boolean);
   return [...new Set([...cols, ...filters])];
 }
 

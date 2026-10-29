@@ -123,6 +123,30 @@ class RowPart(BaseModel):
     values: list[str] = Field(min_length=1, max_length=60)
 
 
+class Term(BaseModel):
+    column: str
+    sign: int = Field(default=1, ge=-1, le=1)
+
+
+class Formula(BaseModel):
+    """ROUND((±column ± column …) × factor, round): see reconcile.formula_sql."""
+    terms: list[Term] = Field(min_length=1, max_length=6)
+    factor: float = Field(default=1.0, gt=0, le=1e6)
+    round: int | None = Field(default=None, ge=0, le=6)
+
+
+class FieldFormula(Formula):
+    field: str = Field(pattern="^(amount|fee)$")
+
+
+class CalcCheck(Formula):
+    """One report's own arithmetic: `column` must equal the formula of other columns of the same report."""
+    label: str = Field(min_length=1, max_length=80)
+    side: str = Field(pattern="^(a|b)$")
+    column: str
+    tolerance: float = Field(default=0.0, ge=0, le=1e9)
+
+
 class SideMap(BaseModel):
     key: str
     amount: str | None = None
@@ -139,6 +163,8 @@ class SideMap(BaseModel):
     filters: list[RowFilter] = Field(default_factory=list, max_length=4)
     # A field read from a companion row of the same reference (the fee on the profit_customer row).
     parts: list[RowPart] = Field(default_factory=list, max_length=2)
+    # A field worked out from several columns (the partner's fee = (Customer paid − Package value) × 1.25).
+    formulas: list[FieldFormula] = Field(default_factory=list, max_length=2)
     skip_no_key: bool = False
 
 
@@ -152,6 +178,7 @@ class MappingIn(BaseModel):
     a: SideMap
     b: SideMap
     extras: list[Extra] = Field(default_factory=list, max_length=40)
+    checks: list[CalcCheck] = Field(default_factory=list, max_length=6)
 
 
 class ServiceRef(BaseModel):

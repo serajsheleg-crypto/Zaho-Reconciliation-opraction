@@ -9,6 +9,15 @@ const int = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 const money = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const compact = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
 
+/** "ROUND((Customer paid − Package value) × 1.25, 2)", written as the server writes it in a run's summary. */
+export function describeFormula(f: { terms: { column: string; sign: number }[]; factor: number; round: number | null }): string {
+  const terms = f.terms
+    .map((x, i) => (i === 0 ? `${x.sign < 0 ? "−" : ""}${x.column || "?"}` : ` ${x.sign < 0 ? "−" : "+"} ${x.column || "?"}`))
+    .join("");
+  const expr = f.factor !== 1 ? `(${terms}) × ${f.factor}` : terms;
+  return f.round != null ? `ROUND(${expr}, ${f.round})` : expr;
+}
+
 export const fmtInt = (n: number | null | undefined) => (n == null ? "—" : signed(int.format(n)));
 export const fmtMoney = (n: number | null | undefined) => (n == null ? "—" : signed(money.format(n)));
 export const fmtCompact = (n: number | null | undefined) =>

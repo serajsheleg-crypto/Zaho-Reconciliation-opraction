@@ -736,3 +736,195 @@ def test_a_report_with_a_summary_above_is_read_from_the_layouts_header(client, f
     second = client.post(url, json={"dataset_a": a["id"], "dataset_b": b["id"]}, headers=H).json()
     assert second["errors"] == [] and second["mapping"]["b"]["key"] == "Reference ID"
     assert second["check"]["sides"]["b"]["rows"] == 2
+
+
+
+# --------------------------------------------------------------------------- calculated fee and calculation checks
+#
+# Libyana writes the fee in parts: Customer paid − Package value is its fee, split into a 1% fee, Libyana's 75%
+# share of the rest and Zaho's remaining 25% (rounded to 2 decimals, Libyana's share first). Our Hawli Fee is
+# compared with (Customer paid − Package value) × factor, the factor being the template's own setting; Libyana's
+# own arithmetic is checked apart from that.
+
+CP, PV, P1, LS, ZC = "Customer paid", "Package value", "1% fee", "Libyana's share", "Zaho commission"
+FEE_FORMULA = {"terms": [{"column": CP, "sign": 1}, {"column": PV, "sign": -1}], "factor": 1.25, "round": 2}
+NET = [{"column": CP, "sign": 1}, {"column": PV, "sign": -1}, {"column": P1, "sign": -1}]
+LIBYANA_CHECKS = [
+    {"label": "1% fee", "side": "b", "column": P1, "terms": [{"column": CP, "sign": 1}], "factor": 0.01, "round": 2},
+    {"label": "Libyana 75%", "side": "b", "column": LS, "terms": NET, "factor": 0.75, "round": 2},
+    {"label": "Zaho 25%", "side": "b", "column": ZC, "terms": NET + [{"column": LS, "sign": -1}], "round": 2},
+]
+
+
+def _calc_config(layouts: dict, factor: float = 1.25) -> tuple[dict, dict, dict]:
+    sa = {**layouts["Hawli - Khales"], "filters": [{"column": "ServiceCode", "values": ["LocalKhales", "KHALES"]}]}
+    sb = layouts["Libyana - Khales sales"]
+    cfg = recon_config("Khales — Libyana (خالص)", sa, sb)
+    cfg["fields"] = {**cfg["fields"], "fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "factor": factor}}}}
+    cfg["checks"] = LIBYANA_CHECKS
+    return rt.clean_config(cfg, sa, sb), sa, sb
+
+
+# (reference, service code, our fee, package, customer paid, 1% fee, Libyana's share, Zaho commission)
+CALC_ROWS = [
+    ("c0000000-0000-4000-8000-000000000001", "LocalKhales", 2.5, 50, 52, 0.52, 1.11, 0.37),   # all agree
+    ("c0000000-0000-4000-8000-000000000002", "LocalKhales", 2.5, 20, 22, 0.30, 1.28, 0.42),   # Libyana's 1% is wrong
+    ("c0000000-0000-4000-8000-000000000003", "LocalKhales", 3.0, 100, 103, 1.03, 1.48, 0.49),  # our fee ≠ 3 × 1.25
+    ("c0000000-0000-4000-8000-000000000004", "LocalKhales", 2.0, 40, 42, 0.42, 1.50, 0.08),   # both: fee and 75%
+    ("c0000000-0000-4000-8000-000000000006", "KHALES", 2.5, 15, 17, 0.17, 1.37, 0.46),        # the other code
+]
+LIBYANA_ONLY = ("c0000000-0000-4000-8000-000000000005", 10, 12, 0.12, 1.41, 0.50)            # 25% wrong, no Hawli row
+
+
+def _calc_files(folder: Path) -> tuple[Path, Path]:
+    import xlsxwriter
+
+    a = _csv(folder / "hawli.csv", ["ServiceCode", "ProviderReference", "Amount", "Fee", "Currency", "Created", "Status"],
+             [[code, ref, pkg, fee, "LYD", "2026-09-10 10:00:00", "ناجحة"] for ref, code, fee, pkg, *_ in CALC_ROWS]
+             + [["TopUp", "t0000000-0000-4000-8000-000000000009", 50, 0, "LYD", "2026-09-10 10:00:00", "ناجحة"]])
+    wb = xlsxwriter.Workbook(str(folder / "libyana.xlsx"))
+    ws = wb.add_worksheet("Sheet1")
+    ws.write_row(0, 0, ["Date & time", "Transaction ID", "Token", "Meter number", PV, CP, P1, LS, ZC, "Reference ID"])
+    rows = [(ref, *rest) for ref, _, _, *rest in CALC_ROWS] + [LIBYANA_ONLY]
+    for r, (ref, pkg, paid, one, share, zaho) in enumerate(rows, start=1):
+        ws.write_row(r, 0, ["2026-09-10 10:00:00.000", f"2609{r:014d}", "1", "", pkg, paid, one, share, zaho, ref])
+    wb.close()
+    return a, folder / "libyana.xlsx"
+
+
+def _calc_run(tmp_path: Path, layouts: dict, factor: float = 1.25) -> tuple[dict, dict[str, dict]]:
+    config, sa, sb = _calc_config(layouts, factor)
+    fa, fb = _calc_files(tmp_path)
+    pa, pra = _prepare(fa, tmp_path / "a.parquet")
+    pb, prb = _prepare(fb, tmp_path / "b.parquet")
+    built = rt.build_run(pra, sa, prb, sb, config)
+    assert built["errors"] == [], built["errors"]
+    rules = {**built["rules"], "approved_statuses": APPROVED, "template_statuses": {"a": sa["statuses"], "b": []}}
+    summary = reconcile(run_dir=tmp_path / "run", path_a=pa, path_b=pb, mapping=built["mapping"], rules=rules,
+                        progress=lambda p, s: None, should_stop=lambda: False, run_id=1, max_db_rows=1000)
+    return summary, _records(tmp_path)
+
+
+def test_a_calculated_fee_and_the_partners_own_arithmetic_are_reported_apart(layouts, tmp_path):
+    s, recs = _calc_run(tmp_path, layouts)
+    cat = {ref[-1]: recs[ref]["category"] for ref in recs}
+    assert cat == {"1": "MATCHED", "2": "CALC_MISMATCH", "3": "FEE_MISMATCH", "4": "FEE_MISMATCH",
+                   "5": "MISSING_IN_A", "6": "MATCHED"}
+    one = recs["c0000000-0000-4000-8000-000000000001"]
+    assert float(one["fee_a"]) == float(one["fee_b"]) == 2.5  # (52 − 50) × 1.25
+    assert float(recs["c0000000-0000-4000-8000-000000000003"]["fee_b"]) == 3.75
+    # What differs between the reports, and which of Libyana's own numbers are wrong, are listed separately.
+    assert recs["c0000000-0000-4000-8000-000000000002"]["mismatch"] == "check:0"
+    assert recs["c0000000-0000-4000-8000-000000000003"]["mismatch"] == "fee"
+    assert recs["c0000000-0000-4000-8000-000000000004"]["mismatch"] == "fee,check:1"
+    assert recs["c0000000-0000-4000-8000-000000000005"]["mismatch"] == "check:2"  # checked though unpaired
+    assert s["mismatch_counts"] == {"fee": 2, "check:0": 1, "check:1": 1, "check:2": 1}
+    assert [(c["label"], c["checked"], c["failed"], c["unreadable"]) for c in s["checks"]] == \
+        [("1% fee", 6, 1, 0), ("Libyana 75%", 6, 1, 0), ("Zaho 25%", 6, 1, 0)]
+    two = recs["c0000000-0000-4000-8000-000000000002"]
+    assert (float(two["check_0_value"]), float(two["check_0_expected"])) == (0.30, 0.22)
+    assert s["checks"][1]["formula"] == "ROUND((Customer paid − Package value − 1% fee) × 0.75, 2)"
+    assert s["compared"]["calculated"] == {"a": {}, "b": {"fee": "ROUND((Customer paid − Package value) × 1.25, 2)"}}
+    # Libyana rounds its 75% half up (1.335 → 1.34) and gives Zaho the rest: the check follows that.
+    assert s["categories"]["CALC_MISMATCH"]["count"] == 1 and s["categories"]["CALC_MISMATCH"]["exposure"] == 0.08
+    # The other service code is in (both codes are allowed) and the TopUp row is not.
+    assert s["rows_a"] == 5 and s["skipped"]["a"] == 1
+
+
+def test_the_fee_factor_is_the_templates_setting(layouts, tmp_path):
+    s, recs = _calc_run(tmp_path, layouts, factor=1.0)
+    assert float(recs["c0000000-0000-4000-8000-000000000001"]["fee_b"]) == 2.0
+    # Now the fees 25% above Libyana's differ, and the two rows that were off by the 25% agree.
+    assert {r[-1] for r, x in recs.items() if "fee" in (x["mismatch"] or "")} == {"1", "2", "6"}
+    assert [c["failed"] for c in s["checks"]] == [1, 1, 1]  # Libyana's arithmetic does not depend on it
+
+
+def test_calculated_sources_and_checks_are_validated(layouts):
+    sa, sb = layouts["Hawli - Khales"], layouts["Libyana - Khales sales"]
+    base = recon_config("Khales — Libyana (خالص)", sa, sb)
+
+    def err(fields=None, checks=None):
+        cfg = {**base, "fields": {**base["fields"], **(fields or {})}, "checks": checks or []}
+        with pytest.raises(rt.ReconTemplateError) as exc:
+            rt.clean_config(cfg, sa, sb)
+        return exc.value.code
+
+    assert err({"status": {"a": {"column": "Status"}, "b": {"formula": FEE_FORMULA}}}) == "recon_bad_formula"
+    assert err({"fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "terms": [{"column": "Nope"}]}}}}) \
+        == "recon_unknown_column"
+    assert err({"fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "factor": 0}}}}) == "recon_bad_factor"
+    assert err({"fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "round": 9}}}}) == "recon_bad_formula"
+    assert err({"fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "terms": []}}}}) == "recon_bad_formula"
+    assert err(checks=[{**LIBYANA_CHECKS[0], "label": ""}]) == "recon_check_incomplete"
+    assert err(checks=[{**LIBYANA_CHECKS[0], "column": "Fee"}]) == "recon_unknown_column"  # Fee is ours, not Libyana's
+    assert err(checks=[LIBYANA_CHECKS[0], LIBYANA_CHECKS[0]]) == "recon_check_twice"
+    ok = rt.clean_config({**base, "fields": {**base["fields"], "fee": {"a": {"column": "Fee"}, "b": {"formula": FEE_FORMULA}}},
+                          "checks": LIBYANA_CHECKS}, sa, sb)
+    assert ok["fields"]["fee"]["b"] == {"formula": FEE_FORMULA} and len(ok["checks"]) == 3
+    assert ok["checks"][2]["factor"] == 1.0 and ok["checks"][0]["tolerance"] == 0.0
+    # A file without a column the formula or a check needs is refused, naming the column.
+    spec = rt.side_spec(sb, ok, "b")
+    assert set(rt.required_columns(spec, ok)) >= {CP, PV, P1, LS, ZC, "Reference ID"}
+
+
+def test_templates_save_a_fee_formula_and_checks(client, layouts, tmp_path):
+    """Through the API: saved, read back after a restart, kept when an edit leaves the checks out, and run."""
+    login(client)
+    fa, fb = _calc_files(tmp_path)
+    made = {}
+    for company, ours, name, plan, sample in (("Zaho", True, "Hawli - Khales (calc)", "Hawli - Khales", fa),
+                                              ("Libyana", False, "Libyana - Khales (calc)", "Libyana - Khales sales", fb)):
+        companies = {c["name"]: c for c in client.get("/api/companies").json()["items"]}
+        cid = companies[company]["id"] if company in companies else \
+            client.post("/api/companies", json={"name": company, "is_ours": ours}, headers=H).json()["id"]
+        ds = upload(client, sample)
+        draft = client.post("/api/templates/draft", json={"dataset_id": ds["id"]}, headers=H).json()["spec"]
+        fields = {k: v for k, v in LAYOUTS[plan]["fields"].items() if v in {c["name"] for c in draft["columns"]}}
+        spec = {**draft, "fields": {**{f: None for f in tpl.FIELDS}, **fields}, "skip_no_key": True,
+                "filters": [{"column": "ServiceCode", "values": ["LocalKhales", "KHALES"]}] if ours else []}
+        r = client.post(f"/api/companies/{cid}/templates", json={"name": name, "spec": spec, "dataset_id": ds["id"]}, headers=H)
+        assert r.status_code == 200, r.text
+        made[name] = r.json()
+    la, lb = made["Hawli - Khales (calc)"], made["Libyana - Khales (calc)"]
+    pairs = client.post("/api/recon-templates/pairs", json={"layout_a": la["id"], "layout_b": lb["id"]}, headers=H).json()
+    fields = {**pairs["suggestion"]["fields"], "fee": {"a": {"column": "Fee"}, "b": {"formula": FEE_FORMULA}}}
+    body = {"name": "Khales calc", "layout_a": la["id"], "layout_b": lb["id"], "label_a": "Zaho", "label_b": "Libyana",
+            "compare": ["amount", "fee"], "fields": fields, "extras": [], "checks": LIBYANA_CHECKS, "rules": {}}
+    r = client.post("/api/recon-templates", json=body, headers=H)
+    assert r.status_code == 200, r.text
+    t = r.json()
+    from app import db
+    db.engine.dispose()
+    got = client.get(f"/api/recon-templates/{t['id']}").json()
+    assert got["config"]["fields"]["fee"]["b"]["formula"]["factor"] == 1.25 and len(got["config"]["checks"]) == 3
+    assert next(p for p in got["pairs"] if p["id"] == "fee")["b"] == {"formula": FEE_FORMULA}
+    # An edit that changes only the factor, from a client that does not send checks, keeps them.
+    fields["fee"]["b"] = {"formula": {**FEE_FORMULA, "factor": 1.1}}
+    r = client.patch(f"/api/recon-templates/{t['id']}", json={**body, "fields": fields, "checks": None, "version": 1},
+                     headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["version"] == 2 and r.json()["config"]["fields"]["fee"]["b"]["formula"]["factor"] == 1.1
+    assert [c["label"] for c in r.json()["config"]["checks"]] == ["1% fee", "Libyana 75%", "Zaho 25%"]
+    bad = client.patch(f"/api/recon-templates/{t['id']}", json={**body, "version": 2, "fields": {
+        **fields, "fee": {"a": {"column": "Fee"}, "b": {"formula": {**FEE_FORMULA, "factor": -1}}}}}, headers=H)
+    assert bad.status_code == 400 and bad.json()["detail"]["code"] == "recon_bad_factor"
+    fields["fee"]["b"] = {"formula": FEE_FORMULA}
+    assert client.patch(f"/api/recon-templates/{t['id']}", json={**body, "fields": fields, "version": 2},
+                        headers=H).status_code == 200
+    a, b = upload(client, fa), upload(client, fb)
+    r = client.post(f"/api/recon-templates/{t['id']}/run", json={"dataset_a": a["id"], "dataset_b": b["id"]}, headers=H)
+    assert r.status_code == 200, r.text
+    run = wait(client, f"/api/runs/{r.json()['id']}")
+    assert run["status"] == "completed", run["error"]
+    s = run["summary"]
+    assert {k: v["count"] for k, v in s["categories"].items() if v["count"]} == \
+        {"MATCHED": 2, "CALC_MISMATCH": 1, "FEE_MISMATCH": 2, "MISSING_IN_A": 1}
+    assert [c["failed"] for c in s["checks"]] == [1, 1, 1]
+    snap = run["config"]["rules"]["recon_template"]["config"]
+    assert snap["fields"]["fee"]["b"]["formula"]["factor"] == 1.25 and len(snap["checks"]) == 3
+    stored = client.get("/api/exceptions", params={"run_id": run["id"], "category": "CALC_MISMATCH"}).json()["items"]
+    assert len(stored) == 1 and stored[0]["mismatch"] == "check:0"
+    items = client.get(f"/api/runs/{run['id']}/results", params={"category": "CALC_MISMATCH"}).json()["items"]
+    assert items[0]["check_0_value"] == pytest.approx(0.30) and items[0]["check_0_expected"] == pytest.approx(0.22)
+    x = client.post(f"/api/runs/{run['id']}/exports", json={"format": "xlsx"}, headers=H)
+    assert x.status_code == 200, x.text

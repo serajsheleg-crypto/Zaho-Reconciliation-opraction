@@ -3,13 +3,19 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { clsx } from "clsx";
 import { ArrowLeft, ArrowRight, Building2, KeyRound, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
+import { describeFormula } from "../lib/format";
 import { useI18n, type T } from "../lib/i18n";
-import type { Company, ExtraPair, FieldMapping, FieldSource, LayoutSources, ReconRules, ReconTemplate } from "../lib/types";
+import type {
+  CalcCheck, Company, ExtraPair, FieldMapping, FieldSource, Formula, LayoutSources, ReconRules, ReconTemplate,
+} from "../lib/types";
 import { Confirm, ErrorBox, Loading, Notice, Switch, errText, useAsync, useToast } from "../components/ui";
 import { ROLE_ICON } from "../components/formats";
 
 const FIELD_IDS = ["key", "amount", "fee", "status", "date", "currency"] as const;
+const FORMULA_FIELDS = ["amount", "fee"];
 const MAX_PAIRS = 6;
+const MAX_CHECKS = 6;
+const MAX_TERMS = 6;
 
 interface Suggested {
   suggestion: { fields: FieldMapping; extras: ExtraPair[] };
@@ -17,7 +23,11 @@ interface Suggested {
 }
 
 const same = (x: FieldSource | null, y: FieldSource | null) =>
-  (x?.column ?? null) === (y?.column ?? null) && (x?.by ?? null) === (y?.by ?? null);
+  (x?.column ?? null) === (y?.column ?? null) && (x?.by ?? null) === (y?.by ?? null) &&
+  JSON.stringify(x?.formula ?? null) === JSON.stringify(y?.formula ?? null);
+
+const NEW_FORMULA: Formula = { terms: [{ column: "", sign: 1 }], factor: 1, round: 2 };
+const formulaOk = (f: Formula) => f.terms.length > 0 && f.terms.every((x) => x.column) && f.factor > 0;
 
 const DEFAULT_RULES: ReconRules = {
   key_mode: "case_insensitive",
@@ -48,6 +58,7 @@ export default function ReconTemplateEditor() {
   const [rules, setRules] = useState<ReconRules>(DEFAULT_RULES);
   const [fields, setFields] = useState<FieldMapping | null>(null);
   const [extras, setExtras] = useState<ExtraPair[]>([]);
+  const [checks, setChecks] = useState<CalcCheck[]>([]);
   const [suggested, setSuggested] = useState<Suggested | null>(null);
   const [saving, setSaving] = useState(false);
   const [stale, setStale] = useState(false);
@@ -90,6 +101,8 @@ export default function ReconTemplateEditor() {
         const nextExtras = keep ? saved!.config.extras ?? r.suggestion.extras : r.suggestion.extras;
         setFields(next);
         setExtras(nextExtras);
+        // Checks name columns of these two layouts: other layouts start without any.
+        setChecks(keep ? saved!.config.checks ?? [] : []);
         const can = new Set([
           ...FIELD_IDS.filter((f) => f !== "key" && next[f]?.a && next[f]?.b),
           ...nextExtras.map((e) => `extra:${e.label}`),
@@ -127,8 +140,11 @@ export default function ReconTemplateEditor() {
   const set = (patch: Partial<ReconRules>) => setRules((r) => ({ ...r, ...patch }));
   const toggle = (pid: string, on: boolean) => setCompare((c) => (on ? [...c, pid] : c.filter((x) => x !== pid)));
   const pairsOk = extras.every((e) => e.label.trim() && e.a && e.b);
+  const formulasOk = Object.values(fields ?? {}).every((p) => [p.a, p.b].every((x) => !x?.formula || formulaOk(x.formula)));
+  const labels = checks.map((c) => c.label.trim().toLowerCase());
+  const checksOk = checks.every((c, i) => c.label.trim() && c.column && formulaOk(c) && labels.indexOf(labels[i]) === i);
   const ready = !!name.trim() && !!layout.a && !!layout.b && !!label.a.trim() && !!label.b.trim() && compare.length > 0 &&
-    !!fields?.key?.a && !!fields?.key?.b && pairsOk;
+    !!fields?.key?.a && !!fields?.key?.b && pairsOk && formulasOk && checksOk;
 
   const save = async () => {
     setSaving(true);
@@ -137,6 +153,7 @@ export default function ReconTemplateEditor() {
         name: name.trim(), description: description.trim() || null, layout_a: layout.a, layout_b: layout.b,
         label_a: label.a.trim(), label_b: label.b.trim(), compare, is_active: active, fields,
         extras: extras.map((e) => ({ ...e, label: e.label.trim() })),
+        checks: checks.map((c) => ({ ...c, label: c.label.trim() })),
         rules: { ...rules, fallback_match: rules.fallback_match && canFallback },
         version: existing.data?.version ?? null,
       };
@@ -287,6 +304,11 @@ export default function ReconTemplateEditor() {
         )}
       </div>
 
+      {fields && suggested && (
+        <ChecksEditor t={t} la={label.a || t("side.a")} lb={label.b || t("side.b")} sources={suggested.sources}
+          checks={checks} setChecks={setChecks} />
+      )}
+
       <div className="panel">
         <div className="panel-head">
           <h2>{t("rt.rules")}</h2>
@@ -390,9 +412,10 @@ export default function ReconTemplateEditor() {
   );
 }
 
-/** A source as a <select> value: "c:<column>" or "p:<index of the layout's companion-row value>". */
+/** A source as a <select> value: "c:<column>", "p:<index of the layout's companion-row value>" or "f:" (calculated). */
 function encode(src: FieldSource | null, parts: LayoutSources["parts"]): string {
   if (!src) return "";
+  if (src.formula) return "f:";
   if (src.by) {
     const i = parts.findIndex((p) => p.column === src.column && p.by === src.by);
     return i >= 0 ? `p:${i}` : "";
@@ -402,6 +425,7 @@ function encode(src: FieldSource | null, parts: LayoutSources["parts"]): string 
 
 function decode(v: string, parts: LayoutSources["parts"]): FieldSource | null {
   if (!v) return null;
+  if (v === "f:") return { formula: NEW_FORMULA };
   if (v.startsWith("p:")) {
     const p = parts[Number(v.slice(2))];
     return p ? { column: p.column, by: p.by, values: p.values } : null;
@@ -430,11 +454,15 @@ function MappingEditor({
   toggle: (id: string, on: boolean) => void;
 }) {
   const src = suggested.sources;
-  const setSide = (f: string, side: "a" | "b", v: string) => {
-    const next = { ...fields, [f]: { ...fields[f], [side]: decode(v, src[side].parts) } };
+  const put = (f: string, side: "a" | "b", value: FieldSource | null) => {
+    const next = { ...fields, [f]: { ...fields[f], [side]: value } };
     setFields(next);
     // A field no longer in both reports cannot stay compared.
     if (!next[f].a || !next[f].b) setCompare((c) => c.filter((x) => x !== f));
+  };
+  const setSide = (f: string, side: "a" | "b", v: string) => {
+    if (v === "f:" && fields[f]?.[side]?.formula) return;
+    put(f, side, decode(v, src[side].parts));
   };
   const reset = (f: string) => setFields({ ...fields, [f]: suggested.suggestion.fields[f] });
   const setPair = (i: number, patch: Partial<ExtraPair>) => {
@@ -443,9 +471,10 @@ function MappingEditor({
     setExtras(next);
     if (patch.label !== undefined) setCompare((c) => c.map((x) => (x === `extra:${old.label}` ? `extra:${patch.label}` : x)));
   };
-  const options = (side: "a" | "b") => (
+  const options = (side: "a" | "b", field?: string) => (
     <>
       <option value="">{t("rt.notMapped")}</option>
+      {field && FORMULA_FIELDS.includes(field) && <option value="f:">{t("rt.calculated")}</option>}
       {src[side].parts.map((p, i) => (
         <option key={`p${i}`} value={`p:${i}`}>
           {p.column} — {t("rt.fromRow", { by: p.by, values: p.values.join(" / ") })}
@@ -487,14 +516,21 @@ function MappingEditor({
                     (cur.a || cur.b) && <span className="pill low map-badge">{t("rt.suggested")}</span>
                   )}
                 </td>
-                {(["a", "b"] as const).map((side) => (
-                  <td key={side}>
-                    <select className="select sm" value={encode(cur[side], src[side].parts)} aria-label={`${t(`role.${f}`)} · ${side === "a" ? la : lb}`}
-                      onChange={(e) => setSide(f, side, e.target.value)}>
-                      {options(side)}
-                    </select>
-                  </td>
-                ))}
+                {(["a", "b"] as const).map((side) => {
+                  const formula = cur[side]?.formula;
+                  return (
+                    <td key={side}>
+                      <select className="select sm" value={encode(cur[side], src[side].parts)} aria-label={`${t(`role.${f}`)} · ${side === "a" ? la : lb}`}
+                        onChange={(e) => setSide(f, side, e.target.value)}>
+                        {options(side, f)}
+                      </select>
+                      {formula && (
+                        <FormulaEditor t={t} columns={src[side].columns} value={formula} label={`${t(`role.${f}`)} · ${side === "a" ? la : lb}`}
+                          onChange={(x) => put(f, side, { formula: x })} />
+                      )}
+                    </td>
+                  );
+                })}
                 <td>
                   {f === "key" ? (
                     <span className="use-key" title={t("rt.useKey.help")}>
@@ -556,6 +592,158 @@ function MappingEditor({
           {t("rt.addPair")}
         </button>
         <span className="small muted" style={{ marginInlineStart: 10 }}>{t("rt.addPair.help")}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A calculated value: columns of one report added or subtracted, multiplied by a factor, then rounded. The factor
+ * is the template's own setting (Libyana's fee × 1.25 is a business rule finance may change).
+ */
+function FormulaEditor({ t, columns, value, onChange, label }: {
+  t: T;
+  columns: string[];
+  value: Formula;
+  onChange: (f: Formula) => void;
+  label: string;
+}) {
+  const setTerm = (i: number, patch: Partial<Formula["terms"][number]>) =>
+    onChange({ ...value, terms: value.terms.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+  return (
+    <div className="formula" role="group" aria-label={label}>
+      {value.terms.map((x, i) => (
+        <div key={i} className="row tight formula-term">
+          <select className="select sm formula-sign" value={x.sign} aria-label={t("rt.formula.sign")}
+            onChange={(e) => setTerm(i, { sign: Number(e.target.value) as 1 | -1 })}>
+            <option value={1}>+</option>
+            <option value={-1}>−</option>
+          </select>
+          <select className="select sm" value={x.column} aria-label={t("rt.formula.column", { n: i + 1 })}
+            onChange={(e) => setTerm(i, { column: e.target.value })}>
+            <option value="">{t("rt.pickColumn")}</option>
+            {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {value.terms.length > 1 && (
+            <button className="btn ghost icon sm" aria-label={t("rt.formula.remove")}
+              onClick={() => onChange({ ...value, terms: value.terms.filter((_, j) => j !== i) })}>
+              <Trash2 />
+            </button>
+          )}
+        </div>
+      ))}
+      <button className="btn ghost sm" disabled={value.terms.length >= MAX_TERMS}
+        onClick={() => onChange({ ...value, terms: [...value.terms, { column: "", sign: 1 }] })}>
+        <Plus />
+        {t("rt.formula.add")}
+      </button>
+      <div className="row tight formula-term">
+        <label className="small muted">
+          {t("rt.formula.factor")}
+          <input className="input sm tnum" style={{ width: 90, marginInlineStart: 6 }} type="number" min={0} step="0.01"
+            value={value.factor} onChange={(e) => onChange({ ...value, factor: Number(e.target.value) })} />
+        </label>
+        <label className="small muted">
+          {t("rt.formula.round")}
+          <select className="select sm" style={{ marginInlineStart: 6 }} value={value.round ?? ""}
+            onChange={(e) => onChange({ ...value, round: e.target.value === "" ? null : Number(e.target.value) })}>
+            <option value="">{t("rt.formula.noRound")}</option>
+            {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{t("rt.formula.decimals", { n })}</option>)}
+          </select>
+        </label>
+      </div>
+      <code className="ltr small formula-preview">= {describeFormula(value)}</code>
+      {!(value.factor > 0) && <span className="small" style={{ color: "var(--critical)" }}>{t("err.recon_bad_factor")}</span>}
+    </div>
+  );
+}
+
+/**
+ * Checks of one report's own arithmetic, kept apart from comparing the two reports: a column must hold what the
+ * formula of the same report's other columns gives (Libyana's 1% fee, its 75% share, Zaho's remaining 25%).
+ */
+function ChecksEditor({ t, la, lb, sources, checks, setChecks }: {
+  t: T;
+  la: string;
+  lb: string;
+  sources: { a: LayoutSources; b: LayoutSources };
+  checks: CalcCheck[];
+  setChecks: (c: CalcCheck[]) => void;
+}) {
+  const set = (i: number, patch: Partial<CalcCheck>) => setChecks(checks.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const labels = checks.map((c) => c.label.trim().toLowerCase());
+  return (
+    <div className="panel" style={{ overflow: "hidden" }}>
+      <div className="panel-head">
+        <div>
+          <h2>{t("rt.checks")}</h2>
+          <p>{t("rt.checks.help")}</p>
+        </div>
+      </div>
+      {checks.length === 0 ? (
+        <div className="panel-body small muted" style={{ borderTop: "1px solid var(--line)" }}>{t("rt.checks.none")}</div>
+      ) : (
+        <div className="table-wrap">
+          <table className="data pair-table mapping">
+            <thead>
+              <tr>
+                <th>{t("rt.check.label")}</th>
+                <th>{t("rt.check.column")}</th>
+                <th>{t("rt.check.formula")}</th>
+                <th>{t("rt.check.tolerance")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {checks.map((c, i) => {
+                const cols = sources[c.side].columns;
+                return (
+                  <tr key={i}>
+                    <td>
+                      <input className="input sm" value={c.label} maxLength={80} placeholder={t("rt.check.labelPh")} aria-label={t("rt.check.label")}
+                        onChange={(e) => set(i, { label: e.target.value })} />
+                      {c.label.trim() && labels.indexOf(labels[i]) !== i && (
+                        <span className="small" style={{ color: "var(--critical)" }}>{t("err.recon_check_twice")}</span>
+                      )}
+                    </td>
+                    <td>
+                      <select className="select sm" value={c.side} aria-label={t("rt.check.report")}
+                        onChange={(e) => set(i, { side: e.target.value as "a" | "b", column: "", terms: [{ column: "", sign: 1 }] })}>
+                        <option value="a">{la}</option>
+                        <option value="b">{lb}</option>
+                      </select>
+                      <select className="select sm" style={{ marginTop: 6 }} value={c.column} aria-label={t("rt.check.column")}
+                        onChange={(e) => set(i, { column: e.target.value })}>
+                        <option value="">{t("rt.pickColumn")}</option>
+                        {cols.map((x) => <option key={x} value={x}>{x}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <FormulaEditor t={t} columns={cols} value={c} label={c.label || t("rt.check.formula")}
+                        onChange={(f) => set(i, { terms: f.terms, factor: f.factor, round: f.round })} />
+                    </td>
+                    <td>
+                      <input className="input sm tnum" style={{ width: 90 }} type="number" min={0} step="0.01" value={c.tolerance}
+                        aria-label={t("rt.check.tolerance")} onChange={(e) => set(i, { tolerance: Math.max(0, Number(e.target.value) || 0) })} />
+                    </td>
+                    <td>
+                      <button className="btn ghost icon sm" aria-label={t("delete")} onClick={() => setChecks(checks.filter((_, j) => j !== i))}>
+                        <Trash2 />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="panel-body">
+        <button className="btn sm" disabled={checks.length >= MAX_CHECKS}
+          onClick={() => setChecks([...checks, { label: "", side: "b", column: "", tolerance: 0, ...NEW_FORMULA }])}>
+          <Plus />
+          {t("rt.checks.add")}
+        </button>
       </div>
     </div>
   );

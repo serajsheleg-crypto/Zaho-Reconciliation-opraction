@@ -3085,3 +3085,27 @@ table.data tr.skipped-row td:last-child {
 .map-reset svg {
   width: 13px;
 }
+
+/* A calculated value: columns added or subtracted, a multiplier and the rounding, with the formula it makes. */
+.formula {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft, transparent);
+}
+.formula-term {
+  flex-wrap: wrap;
+}
+.formula-sign {
+  width: 56px;
+}
+.formula-preview {
+  white-space: normal;
+  word-break: break-word;
+  color: var(--muted);
+}

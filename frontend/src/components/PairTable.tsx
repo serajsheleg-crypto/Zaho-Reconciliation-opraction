@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import { KeyRound } from "lucide-react";
 import type { T } from "../lib/i18n";
+import { describeFormula } from "../lib/format";
 import type { FieldPair, FieldSource } from "../lib/types";
 import { ROLE_ICON } from "./formats";
 
@@ -11,6 +12,14 @@ export function pairName(t: T, p: Pick<FieldPair, "id" | "label">): string {
 
 function Source({ t, src }: { t: T; src: FieldSource | null }) {
   if (!src) return <span className="faint">—</span>;
+  if (src.formula) {
+    return (
+      <span className="pair-src">
+        <code className="ltr small">{describeFormula(src.formula)}</code>
+        <span className="small muted">{t("rt.calculatedShort")}</span>
+      </span>
+    );
+  }
   return (
     <span className="pair-src">
       <b className="ltr">{src.column}</b>

@@ -13,7 +13,7 @@ import { Empty, ErrorBox, Loading, Pager, Popover, useAsync, useToast, errText }
 
 const CATS = [
   "MULTIPLE_MISMATCH", "STATUS_MISMATCH", "AMOUNT_MISMATCH", "FEE_MISMATCH", "MISSING_IN_B", "MISSING_IN_A", "DUPLICATE_A", "DUPLICATE_B", "REF_MISMATCH",
-  "CURRENCY_MISMATCH", "DATE_MISMATCH", "FIELD_MISMATCH", "NO_KEY_A", "NO_KEY_B",
+  "CURRENCY_MISMATCH", "DATE_MISMATCH", "FIELD_MISMATCH", "NO_KEY_A", "NO_KEY_B", "CALC_MISMATCH",
 ];
 
 type Facet = { severity: string; n: number; exposure: number };

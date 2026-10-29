@@ -99,6 +99,8 @@ export interface Mapping {
   a: SideMap;
   b: SideMap;
   extras: Extra[];
+  /** Calculation checks of one report's own numbers (reconciliation templates only). */
+  checks?: CalcCheck[];
 }
 
 export interface Rules {
@@ -333,11 +335,29 @@ export interface Summary {
     service?: { id: number; name: string; revenue_applies: boolean } | null;
     revenue_applies?: boolean | null;
     templates?: { a: TemplateRef | null; b: TemplateRef | null } | null;
+    /** Fields worked out from several columns, per side: field -> "ROUND((Customer paid − Package value) × 1.25, 2)". */
+    calculated?: { a: Record<string, string>; b: Record<string, string> };
   };
   seconds: number;
   stored_exceptions?: number;
   /** Rows a template's filters left out, per side. */
   skipped?: { a: number; b: number };
+  /** One report's own arithmetic, per calculation check, over every row of that report. */
+  checks?: CheckResult[];
+  /** Records per difference ("amount", "fee", "check:0"…), whatever their category. */
+  mismatch_counts?: Record<string, number>;
+}
+
+export interface CheckResult {
+  label: string;
+  side: "a" | "b";
+  column: string;
+  formula: string;
+  tolerance: number;
+  checked: number;
+  failed: number;
+  unreadable: number;
+  difference: number;
 }
 
 export interface Run {
@@ -465,11 +485,27 @@ export interface RowPart {
   values: string[];
 }
 
-/** Where a layout reads a field: a column, or a column of the companion row. */
+/** ROUND((±column ± column …) × factor, round) of one report's columns. */
+export interface Formula {
+  terms: { column: string; sign: 1 | -1 }[];
+  factor: number;
+  round: number | null;
+}
+
+/** Where a layout reads a field: a column, a column of the companion row, or (amount, fee) a formula. */
 export interface FieldSource {
-  column: string;
+  column?: string;
   by?: string;
   values?: string[];
+  formula?: Formula;
+}
+
+/** A check of one report's own arithmetic: `column` must hold what the formula gives. */
+export interface CalcCheck extends Formula {
+  label: string;
+  side: "a" | "b";
+  column: string;
+  tolerance: number;
 }
 
 /** A template's saved mapping: per field, the column of each report (null = that report does not have it). */
@@ -523,7 +559,7 @@ export interface ReconTemplate {
   layout_b: number;
   label_a: string;
   label_b: string;
-  config: { compare: string[]; rules: ReconRules; fields?: FieldMapping; extras?: ExtraPair[] };
+  config: { compare: string[]; rules: ReconRules; fields?: FieldMapping; extras?: ExtraPair[]; checks?: CalcCheck[] };
   version: number;
   is_active: boolean;
   created_at: string;

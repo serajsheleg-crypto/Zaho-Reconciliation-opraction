@@ -42,7 +42,7 @@ Progress = Callable[[int, str], None]
 CATEGORIES = [
     "MULTIPLE_MISMATCH", "STATUS_MISMATCH", "AMOUNT_MISMATCH", "FEE_MISMATCH", "MISSING_IN_B", "MISSING_IN_A",
     "DUPLICATE_A", "DUPLICATE_B", "REF_MISMATCH", "CURRENCY_MISMATCH", "DATE_MISMATCH", "FIELD_MISMATCH",
-    "NO_KEY_A", "NO_KEY_B", "MATCHED",
+    "NO_KEY_A", "NO_KEY_B", "CALC_MISMATCH", "MATCHED",
 ]
 EXCEPTION_CATEGORIES = [c for c in CATEGORIES if c != "MATCHED"]
 SEVERITIES = ["critical", "high", "medium", "low"]
@@ -105,6 +105,41 @@ def side_parts(m: dict) -> list[dict]:
     """A side's complete companion-row fields: [{"field", "column", "by", "values"}]."""
     return [p for p in m.get("parts") or []
             if p.get("field") in PART_FIELDS and p.get("column") and p.get("by") and p.get("values")]
+
+
+# A calculated value: some of a report's numeric columns added or subtracted, multiplied by a factor and
+# optionally rounded half away from zero, in that order. ROUND((±c1 ± c2 …) × factor, decimals)
+#   {"terms": [{"column", "sign": 1 | -1}], "factor": 1.25, "round": 2 | None}
+# It can stand for the amount or the fee of one side ("formulas": [{"field", **formula}]), so a partner that
+# reports a fee in parts is compared with ours, and it is what a calculation check expects a column to hold.
+FORMULA_FIELDS = ("amount", "fee")
+MAX_TERMS = 6
+
+
+def calc_column(field: str) -> str:
+    """The name a calculated field is given in a side's mapping (it is no column of the file)."""
+    return f"__calc_{field}"
+
+
+def side_formulas(m: dict) -> dict[str, dict]:
+    """A side's calculated fields: field -> formula."""
+    return {f["field"]: f for f in m.get("formulas") or [] if f.get("field") in FORMULA_FIELDS and f.get("terms")}
+
+
+def side_checks(mapping: dict, side: str) -> list[tuple[int, dict]]:
+    """The calculation checks on one side's own numbers, with their index in the mapping's list:
+    {"label", "side", "column", "terms", "factor", "round", "tolerance"}: `column` must equal the formula."""
+    return [(i, c) for i, c in enumerate(mapping.get("checks") or []) if c.get("side") == side]
+
+
+def formula_sql(terms: list[tuple[str, int]], factor, decimals, style: str) -> str:
+    """ROUND((±t1 ± t2 …) × factor, decimals) over cleaned text columns, as DECIMAL(38,6); NULL when a term is
+    blank or unreadable."""
+    total = " + ".join(f"({'-1 * ' if sign < 0 else ''}{amount_expr(t, style, False)})" for t, sign in terms)
+    expr = f"(({total}) * {_dec(1 if factor is None else factor)})"
+    if decimals is not None:
+        expr = f"round({expr}, {int(decimals)})"
+    return f"CAST({expr} AS DECIMAL(38,6))"
 
 
 def _in_values(column: str, values: list) -> str:
@@ -183,27 +218,51 @@ def amount_signs(path: Path, m: dict, sample: int = 200_000) -> tuple[int, int]:
     return int(neg), int(pos)
 
 
-def _side_select(s: str, m: dict, extras: list[dict], rules: dict, source: str) -> str:
+def _side_select(s: str, m: dict, extras: list[dict], rules: dict, source: str,
+                 checks: list[tuple[int, dict]] = ()) -> str:
     """Normalised columns for one side.
 
     The inner query cleans every mapped column exactly once (trim, Arabic digits); the outer query
     parses the clean text. Plain values take a direct cast and only odd ones ("1,234.50 LYD",
     "18/10/2026") go through the slower regex/format parsers, about 3x faster on 10M+ rows.
+
+    A calculated amount or fee (side_formulas) is worked out from its columns; each calculation check gives
+    the value the report wrote (ck<i>_v) and the value its formula gives (ck<i>_c).
     """
+    calc = side_formulas(m)
+
     def col(role: str) -> str | None:
         return m.get(role) or None
 
     inner = ["CAST(__row AS BIGINT) AS r"]
     for role in ("key", "amount", "status", "date", "time", "currency", "fee"):
-        if col(role):
+        if role in calc:
+            inner += [f"zr_clean({q_ident(t['column'])}) AS {role}{j}_t" for j, t in enumerate(calc[role]["terms"])]
+        elif col(role):
             inner.append(f"zr_clean({q_ident(col(role))}) AS {role}_t")
     for i, ex in enumerate(extras):
         inner.append(f"zr_clean({q_ident(ex[s])}) AS x{i}_t")
+    for i, c in checks:
+        inner.append(f"zr_clean({q_ident(c['column'])}) AS ck{i}_t")
+        inner += [f"zr_clean({q_ident(t['column'])}) AS ck{i}_{j}_t" for j, t in enumerate(c["terms"])]
+
+    def number(role: str, style: str) -> tuple[str, str] | None:
+        """(value, present) of a numeric field: its column, or its formula when it is calculated."""
+        absolute = bool(rules["amount_absolute"])
+        if role in calc:
+            f = calc[role]
+            terms = [(f"{role}{j}_t", int(t.get("sign") or 1)) for j, t in enumerate(f["terms"])]
+            value = formula_sql(terms, f.get("factor"), f.get("round"), style)
+            return (f"abs({value})" if absolute else value), "(" + " AND ".join(f"{t} IS NOT NULL" for t, _ in terms) + ")"
+        if col(role):
+            return amount_expr(f"{role}_t", style, absolute), f"({role}_t IS NOT NULL)"
+        return None
 
     outer = [f"r AS row_{s}", f"key_t AS key_{s}", f"{key_expr('key_t', rules['key_mode'])} AS k_{s}"]
-    if col("amount"):
-        outer.append(f"{amount_expr('amount_t', m.get('amount_style', 'dot'), bool(rules['amount_absolute']))} AS amt_{s}")
-        outer.append(f"(amount_t IS NOT NULL) AS amt_has_{s}")
+    amount = number("amount", m.get("amount_style", "dot"))
+    if amount:
+        outer.append(f"{amount[0]} AS amt_{s}")
+        outer.append(f"{amount[1]} AS amt_has_{s}")
     else:
         outer += [f"CAST(NULL AS DECIMAL(38,6)) AS amt_{s}", f"FALSE AS amt_has_{s}"]
     outer.append(f"status_t AS st_raw_{s}" if col("status") else f"CAST(NULL AS VARCHAR) AS st_raw_{s}")
@@ -216,12 +275,18 @@ def _side_select(s: str, m: dict, extras: list[dict], rules: dict, source: str) 
     else:
         outer += [f"CAST(NULL AS TIMESTAMP) AS dt_{s}", f"FALSE AS dt_has_{s}"]
     outer.append(f"zr_cur(currency_t) AS cur_{s}" if col("currency") else f"CAST(NULL AS VARCHAR) AS cur_{s}")
-    if col("fee"):
-        outer.append(f"{amount_expr('fee_t', m.get('fee_style', 'dot'), bool(rules['amount_absolute']))} AS fee_{s}")
-        outer.append(f"(fee_t IS NOT NULL) AS fee_has_{s}")
+    fee = number("fee", m.get("fee_style", "dot"))
+    if fee:
+        outer.append(f"{fee[0]} AS fee_{s}")
+        outer.append(f"{fee[1]} AS fee_has_{s}")
     else:
         outer += [f"CAST(NULL AS DECIMAL(38,6)) AS fee_{s}", f"FALSE AS fee_has_{s}"]
     outer += [f"x{i}_t AS x{i}_{s}" for i in range(len(extras))]
+    style = m.get("amount_style", "dot")
+    for i, c in checks:
+        terms = [(f"ck{i}_{j}_t", int(t.get("sign") or 1)) for j, t in enumerate(c["terms"])]
+        outer.append(f"{amount_expr(f'ck{i}_t', style, False)} AS ck{i}_v")
+        outer.append(f"{formula_sql(terms, c.get('factor'), c.get('round'), style)} AS ck{i}_c")
     return f"SELECT {', '.join(outer)} FROM (SELECT {', '.join(inner)} FROM {source})"
 
 
@@ -298,7 +363,8 @@ def validate(mapping: dict, cols_a: list[str], cols_b: list[str], rules: dict | 
         m = mapping.get(s) or {}
         if not m.get("key"):
             raise ConfigError(f"missing_key_{s}")
-        virtual = {part_column(p["field"]) for p in side_parts(m)}
+        calc = side_formulas(m)
+        virtual = {part_column(p["field"]) for p in side_parts(m)} | {calc_column(f) for f in calc}
         for role in (*ROLES, "time"):
             if m.get(role) and m[role] not in cols and m[role] not in virtual:
                 raise ConfigError(f"unknown_column_{s}:{m[role]}")
@@ -309,6 +375,18 @@ def validate(mapping: dict, cols_a: list[str], cols_b: list[str], rules: dict | 
             for c in (p["column"], p["by"]):
                 if c not in cols:
                     raise ConfigError(f"unknown_column_{s}:{c}")
+        for field, f in calc.items():
+            if m.get(field) != calc_column(field) or not 0 < len(f["terms"]) <= MAX_TERMS:
+                raise ConfigError(f"bad_formula_{s}:{field}")
+            for t in f["terms"]:
+                if t.get("column") not in cols:
+                    raise ConfigError(f"unknown_column_{s}:{t.get('column')}")
+        for _, c in side_checks(mapping, s):
+            if not 0 < len(c.get("terms") or []) <= MAX_TERMS:
+                raise ConfigError(f"bad_check_{s}:{c.get('label')}")
+            for name in [c.get("column")] + [t.get("column") for t in c["terms"]]:
+                if name not in cols:
+                    raise ConfigError(f"unknown_column_{s}:{name}")
     for ex in mapping.get("extras") or []:
         if ex.get("a") not in cols_a or ex.get("b") not in cols_b:
             raise ConfigError("unknown_extra_column")
@@ -392,6 +470,7 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
     rules = {**DEFAULT_RULES, **(rules or {})}
     ma, mb = mapping["a"], mapping["b"]
     extras = [e for e in (mapping.get("extras") or []) if e.get("a") and e.get("b")]
+    checks = list(mapping.get("checks") or [])
     has_amount = bool(ma.get("amount") and mb.get("amount"))
     cmp_amount = has_amount and rules.get("compare_amount", True) is not False
     cmp_status = bool(ma.get("status") and mb.get("status")) and rules.get("compare_status", True) is not False
@@ -424,7 +503,7 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                        CASE WHEN x.st_raw_{s} IS NULL THEN NULL ELSE coalesce(m.canon, 'UNKNOWN') END AS st_{s},
                        CASE WHEN x.k_{s} IS NULL THEN NULL
                             ELSE row_number() OVER (PARTITION BY x.k_{s} ORDER BY x.row_{s}) END AS occ_{s}
-                FROM ({_side_select(s, m, extras, rules, side_source(path, m))}) x
+                FROM ({_side_select(s, m, extras, rules, side_source(path, m), side_checks(mapping, s))}) x
                 LEFT JOIN smap_{s} m ON m.raw = x.st_raw_{s}
             """, progress, lo, hi, f"loading_{s}")
             con.execute(f"CREATE TABLE keys_{s} AS SELECT DISTINCT k_{s} AS k FROM t_{s} WHERE k_{s} IS NOT NULL")
@@ -483,6 +562,11 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
         cur_ok = f"(NOT {str(cmp_cur).upper()} OR cur_a IS NOT DISTINCT FROM cur_b)"
         extra_ok = [f"(lower(x{i}_a) IS NOT DISTINCT FROM lower(x{i}_b))" for i in range(len(extras))]
         extras_ok = " AND ".join(extra_ok) if extra_ok else "TRUE"
+        # A calculation check looks at one report's own numbers, on every row of that side, paired or not:
+        # TRUE / FALSE, or NULL when the row has no such report or a value is blank or unreadable.
+        check_ok = [f"""(CASE WHEN ck{i}_v IS NULL OR ck{i}_c IS NULL THEN NULL
+                         ELSE abs(ck{i}_v - ck{i}_c) <= {_dec(c.get('tolerance'))} END)""" for i, c in enumerate(checks)]
+        calc_bad = " OR ".join(f"ck{i}_ok IS FALSE" for i in range(len(checks))) or "FALSE"
         mismatch_parts = [
             "CASE WHEN method = 'amount_date' THEN 'reference' END",
             "CASE WHEN NOT status_ok THEN 'status' END",
@@ -491,6 +575,7 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
             "CASE WHEN NOT cur_ok THEN 'currency' END",
             "CASE WHEN NOT date_ok THEN 'date' END",
         ] + [f"CASE WHEN NOT {e} THEN {q_str('extra:' + str(i))} END" for i, e in enumerate(extra_ok)]
+        check_parts = [f"CASE WHEN ck{i}_ok IS FALSE THEN {q_str('check:' + str(i))} END" for i in range(len(checks))]
         # Differing fields of a pair (a reference that differs is not a field: it is how the pair was made).
         field_diffs = " + ".join(f"CASE WHEN NOT {ok} THEN 1 ELSE 0 END"
                                  for ok in ["status_ok", "amount_ok", "fee_ok", "cur_ok", "date_ok"] + extra_ok)
@@ -514,10 +599,13 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                    (b.k_b IS NOT NULL AND (b.occ_b > 1 OR ka.k IS NOT NULL)) AS dup_b
             FROM t_b b ANTI JOIN pairs p ON p.row_b = b.row_b LEFT JOIN keys_a ka ON ka.k = b.k_b;
 
+            CREATE VIEW checked AS
+            SELECT *{"".join(f", {ok} AS ck{i}_ok" for i, ok in enumerate(check_ok))} FROM unioned;
+
             CREATE VIEW compared AS
             SELECT *, {amount_ok} AS amount_ok, {fee_ok} AS fee_ok, {status_ok} AS status_ok, {date_ok} AS date_ok,
-                   {cur_ok} AS cur_ok, {extras_ok} AS extras_ok
-            FROM unioned;
+                   {cur_ok} AS cur_ok, {extras_ok} AS extras_ok, ({calc_bad}) AS calc_bad
+            FROM checked;
 
             CREATE VIEW categorised AS
             SELECT *,
@@ -534,9 +622,13 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                   WHEN method = 'amount_date' THEN 'REF_MISMATCH'
                   WHEN NOT date_ok THEN 'DATE_MISMATCH'
                   WHEN NOT extras_ok THEN 'FIELD_MISMATCH'
+                  WHEN calc_bad THEN 'CALC_MISMATCH'
                   ELSE 'MATCHED' END AS category,
-                CASE WHEN method IS NOT NULL
-                     THEN NULLIF(concat_ws(',', {', '.join(mismatch_parts)}), '') END AS mismatch
+                -- What differs between the two reports (paired records only), then the failed calculation
+                -- checks, which belong to one report's row whether or not it was paired.
+                NULLIF(concat_ws(',', CASE WHEN method IS NOT NULL
+                                           THEN NULLIF(concat_ws(',', {', '.join(mismatch_parts)}), '') END
+                                      {"".join(", " + p for p in check_parts)}), '') AS mismatch
             FROM compared;
 
             CREATE VIEW scored AS
@@ -555,6 +647,7 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                   WHEN 'FEE_MISMATCH' THEN 'medium'
                   WHEN 'REF_MISMATCH' THEN 'medium' WHEN 'DATE_MISMATCH' THEN 'medium'
                   WHEN 'NO_KEY_A' THEN 'medium' WHEN 'NO_KEY_B' THEN 'medium'
+                  WHEN 'CALC_MISMATCH' THEN 'medium'
                   ELSE 'low' END AS severity,
                 CASE category
                   WHEN 'MATCHED' THEN 0
@@ -567,6 +660,8 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                   WHEN 'FEE_MISMATCH' THEN abs(coalesce(fee_b, 0) - coalesce(fee_a, 0))
                   WHEN 'STATUS_MISMATCH' THEN {status_exposure}
                   WHEN 'CURRENCY_MISMATCH' THEN abs(coalesce(amt_a, amt_b, 0))
+                  WHEN 'CALC_MISMATCH' THEN greatest(0{"".join(
+                       f", CASE WHEN ck{i}_ok IS FALSE THEN abs(ck{i}_v - ck{i}_c) ELSE 0 END" for i in range(len(checks)))})
                   ELSE CASE WHEN row_b IS NULL THEN CASE WHEN st_a IN {dead} THEN 0 ELSE abs(coalesce(amt_a, 0)) END
                             WHEN row_a IS NULL THEN CASE WHEN st_b IN {dead} THEN 0 ELSE abs(coalesce(amt_b, 0)) END
                             ELSE 0 END
@@ -576,6 +671,7 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
         cat_rank = "CASE category " + " ".join(f"WHEN {q_str(c)} THEN {i}" for i, c in enumerate(CATEGORIES)) + " END"
         sev_rank = "CASE severity " + " ".join(f"WHEN {q_str(s)} THEN {i}" for i, s in enumerate(SEVERITIES)) + " ELSE 9 END"
         extra_cols = "".join(f", x{i}_a, x{i}_b" for i in range(len(extras)))
+        extra_cols += "".join(f", ck{i}_v AS check_{i}_value, ck{i}_c AS check_{i}_expected" for i in range(len(checks)))
         cols = f"""category, severity, mismatch, method, row_a, row_b, key_a, key_b,
                      amt_a AS amount_a, amt_b AS amount_b,
                      CASE WHEN row_a IS NOT NULL AND row_b IS NOT NULL THEN coalesce(amt_b, 0) - coalesce(amt_a, 0) END
@@ -613,6 +709,13 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
                                    revenue_applies=rules.get("revenue_applies"), templates=rules.get("templates"))
         # Rows a template's filters left out of the comparison (another kind of row, totals, notes).
         summary["skipped"] = {"a": skipped_rows(con, path_a, ma), "b": skipped_rows(con, path_b, mb)}
+        summary["checks"] = _check_summary(con, checks)
+        summary["mismatch_counts"] = {k: int(n) for k, n in con.execute(f"""
+            SELECT part, count(*) FROM (SELECT unnest(string_split(mismatch, ',')) AS part
+                                        FROM read_parquet({q_path(results_path)}) WHERE mismatch IS NOT NULL)
+            GROUP BY 1 ORDER BY 1""").fetchall()}
+        summary["compared"]["calculated"] = {s: {f: describe_formula(x) for f, x in side_formulas(m).items()}
+                                             for s, m in (("a", ma), ("b", mb))}
         step(92, "summarizing")
         exceptions_csv = run_dir / "exceptions_for_db.csv"
         _write_db_csv(con, results_path, exceptions_csv, run_id, max_db_rows)
@@ -620,6 +723,36 @@ def reconcile(*, run_dir: Path, path_a: Path, path_b: Path, mapping: dict, rules
         return summary
     finally:
         con.close()
+
+
+def describe_formula(f: dict) -> str:
+    """'ROUND((Customer paid − Package value) × 1.25, 2)', as people read it."""
+    terms = ""
+    for j, t in enumerate(f.get("terms") or []):
+        sign = "−" if int(t.get("sign") or 1) < 0 else "+"
+        terms += (f"−{t['column']}" if sign == "−" else t["column"]) if j == 0 else f" {sign} {t['column']}"
+    factor = 1 if f.get("factor") is None else f["factor"]
+    expr = f"({terms}) × {Decimal(str(factor)).normalize():f}" if Decimal(str(factor)) != 1 else terms
+    return f"ROUND({expr}, {f['round']})" if f.get("round") is not None else expr
+
+
+def _check_summary(con, checks: list[dict]) -> list[dict]:
+    """Per calculation check, over every row of its side: rows checked, rows whose value differs from the
+    formula, rows that could not be checked (a blank or unreadable value), and the total difference."""
+    out = []
+    for i, c in enumerate(checks):
+        s = "a" if c.get("side") == "a" else "b"
+        checked, failed, total, diff = con.execute(f"""
+            SELECT count(*) FILTER (WHERE ck{i}_v IS NOT NULL AND ck{i}_c IS NOT NULL),
+                   count(*) FILTER (WHERE abs(ck{i}_v - ck{i}_c) > {_dec(c.get('tolerance'))}),
+                   count(*),
+                   sum(abs(ck{i}_v - ck{i}_c)) FILTER (WHERE abs(ck{i}_v - ck{i}_c) > {_dec(c.get('tolerance'))})
+            FROM t_{s}""").fetchone()
+        out.append({"label": c.get("label") or c["column"], "side": s, "column": c["column"],
+                    "formula": describe_formula(c), "tolerance": float(c.get("tolerance") or 0),
+                    "checked": int(checked), "failed": int(failed), "unreadable": int(total - checked),
+                    "difference": _num(diff) or 0.0})
+    return out
 
 
 def _summarise(con, results_path: Path, extras: list[dict], cmp_amount: bool, cmp_status: bool,
