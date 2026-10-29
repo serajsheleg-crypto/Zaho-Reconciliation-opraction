@@ -117,7 +117,9 @@ export default function ReconTemplates() {
                     {t("rt.matchOn")}
                   </dt>
                   <dd className="ltr">
-                    {x.layouts.a?.summary?.fields.key ?? "—"} = {x.layouts.b?.summary?.fields.key ?? "—"}
+                    {/* The template's own key; a template saved before it had one uses the layouts' keys. */}
+                    {x.config.fields?.key?.a?.column ?? x.layouts.a?.summary?.fields.key ?? "—"} ={" "}
+                    {x.config.fields?.key?.b?.column ?? x.layouts.b?.summary?.fields.key ?? "—"}
                   </dd>
                 </div>
                 <div>
