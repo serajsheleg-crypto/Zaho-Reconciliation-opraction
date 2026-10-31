@@ -49,6 +49,9 @@ class ExportContext:
         self.extras = [e.get("label") or e["a"] for e in (config.get("mapping", {}).get("extras") or [])]
         self.checks = [c.get("label") or c["column"] for c in (config.get("mapping", {}).get("checks") or [])]
         self.fee = bool((summary.get("compared") or {}).get("fee"))
+        # A "successful amount" only means something when statuses are compared: a report without a status column
+        # has no successful rows, and a total of 0 would read as a large difference (the run page drops it too).
+        self.status = bool((summary.get("compared") or {}).get("status", True))
         self.workflow = workflow or (lambda category: {})
 
     def t(self, key: str, **kw) -> str:
@@ -401,8 +404,8 @@ def _excel_summary(ctx: ExportContext, wb, F: dict, used: set[str], counts: dict
     for key, va, vb, fmt in (
         ("records", s["rows_a"], s["rows_b"], "num"),
         ("total_amount", s["amount_a"], s["amount_b"], "money"),
-        ("success_amount", s["success_amount_a"], s["success_amount_b"], "money"),
-    ) + ((("total_fee", s.get("fee_a", 0), s.get("fee_b", 0), "money"),) if ctx.fee else ()):
+    ) + ((("success_amount", s["success_amount_a"], s["success_amount_b"], "money"),) if ctx.status else ()) \
+      + ((("total_fee", s.get("fee_a", 0), s.get("fee_b", 0), "money"),) if ctx.fee else ()):
         ws.write_string(r, 0, ctx.t(key), F["label"])
         ws.write_number(r, 1, va, F[fmt])
         ws.write_number(r, 2, vb, F[fmt])
@@ -760,6 +763,10 @@ def _report_html(ctx: ExportContext, top: list[tuple]) -> str:
     )
     rule_rows = "".join(f"<tr><td>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in ctx.rule_rows())
     diff_success = s["success_amount_b"] - s["success_amount_a"]
+    success_row = (f"<tr><td>{e(t('success_amount'))}</td><td class=n>{_fmt_money(s['success_amount_a'])}</td>"
+                   f"<td class=n>{_fmt_money(s['success_amount_b'])}</td>"
+                   f"<td class=\"n {'bad' if abs(diff_success) > 0.004 else 'ok'}\">{_fmt_money(diff_success)}</td></tr>"
+                   ) if ctx.status else ""
     fee_row = (f"<tr><td>{e(t('total_fee'))}</td><td class=n>{_fmt_money(s.get('fee_a', 0))}</td>"
                f"<td class=n>{_fmt_money(s.get('fee_b', 0))}</td>"
                f"<td class=n>{_fmt_money(s.get('fee_b', 0) - s.get('fee_a', 0))}</td></tr>") if ctx.fee else ""
@@ -788,9 +795,7 @@ def _report_html(ctx: ExportContext, top: list[tuple]) -> str:
       <td class=n>{_fmt_int(s['rows_b'] - s['rows_a'])}</td></tr>
   <tr><td>{e(t('total_amount'))}</td><td class=n>{_fmt_money(s['amount_a'])}</td><td class=n>{_fmt_money(s['amount_b'])}</td>
       <td class=n>{_fmt_money(s['amount_b'] - s['amount_a'])}</td></tr>
-  <tr><td>{e(t('success_amount'))}</td><td class=n>{_fmt_money(s['success_amount_a'])}</td>
-      <td class=n>{_fmt_money(s['success_amount_b'])}</td>
-      <td class="n {'bad' if abs(diff_success) > 0.004 else 'ok'}">{_fmt_money(diff_success)}</td></tr>
+  {success_row}
   {fee_row}
  </table></div>
  <div><h2>{e(t('rules'))}</h2><table>{rule_rows}</table></div>

@@ -4,8 +4,8 @@ import { clsx } from "clsx";
 import { ArrowLeftRight, LayoutTemplate, Link2, Play } from "lucide-react";
 import { api } from "../lib/api";
 import { useI18n, type T } from "../lib/i18n";
-import { fmtInt } from "../lib/format";
-import type { CheckSide, Dataset, FieldPair, FileProblem, ReconTemplate, TemplatePlan } from "../lib/types";
+import { describeFormula, fmtInt, fmtMoney } from "../lib/format";
+import type { CalcCheck, CheckSide, Dataset, FieldPair, FileProblem, ReconTemplate, TemplatePlan } from "../lib/types";
 import { errText, Notice, useToast } from "../components/ui";
 import { FileSlot, type UploadConfig } from "../components/Upload";
 import { PairTable, pairName } from "../components/PairTable";
@@ -22,8 +22,8 @@ const CHECK_ROWS: { key: keyof CheckSide; problem: boolean }[] = [
 ];
 
 /** The columns one file must have for this template: the key, the compared fields (every column of a calculated
- * one) and the row filters. */
-function needed(pairs: FieldPair[], compare: string[], side: Side, filters: string[]): string[] {
+ * one), every column a calculation check of that report reads, and the row filters (as the server requires them). */
+function needed(pairs: FieldPair[], compare: string[], side: Side, filters: string[], checks: CalcCheck[]): string[] {
   const cols = pairs
     .filter((p) => p.id === "key" || compare.includes(p.id))
     .flatMap((p) => {
@@ -33,7 +33,8 @@ function needed(pairs: FieldPair[], compare: string[], side: Side, filters: stri
       return [src.column ?? "", ...(src.by ? [src.by] : [])];
     })
     .filter(Boolean);
-  return [...new Set([...cols, ...filters])];
+  const checked = checks.filter((c) => c.side === side).flatMap((c) => [c.column, ...c.terms.map((x) => x.column)]);
+  return [...new Set([...cols, ...checked, ...filters])];
 }
 
 function problemText(t: T, p: FileProblem, la: string, lb: string, warn = false): string {
@@ -63,6 +64,7 @@ export default function TemplateRun({ template, cfg, onChange }: { template: Rec
   const lb = template.label_b;
   const pairs = template.pairs ?? [];
   const compare = template.config.compare;
+  const checks = template.config.checks ?? [];
   const summaries = { a: template.layouts.a?.summary, b: template.layouts.b?.summary };
 
   const bothReady = ds.a?.status === "ready" && ds.b?.status === "ready";
@@ -137,7 +139,7 @@ export default function TemplateRun({ template, cfg, onChange }: { template: Rec
       <div className="ledgers">
         {(["a", "b"] as Side[]).map((side, i) => {
           const layout = template.layouts[side];
-          const cols = needed(pairs, compare, side, (summaries[side]?.filters ?? []).map((f) => f.column));
+          const cols = needed(pairs, compare, side, (summaries[side]?.filters ?? []).map((f) => f.column), checks);
           const ledger = (
             <section key={side} className={clsx("ledger", side)} aria-label={side === "a" ? t("new.fileOurs", { label: la }) : t("new.fileTheirs", { label: lb })}>
               <div className="ledger-title">
@@ -168,6 +170,38 @@ export default function TemplateRun({ template, cfg, onChange }: { template: Rec
           </div>
         </div>
         <PairTable t={t} pairs={pairs} compare={compare} la={la} lb={lb} />
+        {checks.length > 0 && (
+          <>
+            <div className="panel-body" style={{ borderTop: "1px solid var(--line)", paddingBottom: 6 }}>
+              <h3 className="small" style={{ margin: 0 }}>{t("rt.checks")}</h3>
+              <p className="small muted" style={{ margin: "4px 0 0" }}>{t("new.checks.help")}</p>
+            </div>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>{t("rt.check.label")}</th>
+                    <th>{t("rt.check.column")}</th>
+                    <th>{t("rt.check.formula")}</th>
+                    <th className="num">{t("rt.check.tolerance")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {checks.map((c) => (
+                    <tr key={c.label}>
+                      <td><b><bdi>{c.label}</bdi></b></td>
+                      <td>
+                        <span className={clsx("side-tag", c.side)}>{c.side === "a" ? la : lb}</span> <b className="ltr">{c.column}</b>
+                      </td>
+                      <td><code className="ltr small">{describeFormula(c)}</code></td>
+                      <td className="num tnum">{fmtMoney(c.tolerance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="panel">

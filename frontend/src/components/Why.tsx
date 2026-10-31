@@ -70,7 +70,8 @@ export function Why({ items, a, b }: { items: WhyItem[]; a: string; b: string })
     <ul className="why">
       {items.map((x, i) => (
         <li key={i} className={x.tone}>
-          {x.field && <b>{x.field}:</b>}
+          {/* A field can be a name people typed ("1% fee"): it keeps its own direction on the Arabic page. */}
+          {x.field && <b><bdi>{x.field}</bdi>:</b>}
           {x.a !== undefined && (
             <>
               <span className="va" title={a}>{x.a}</span>

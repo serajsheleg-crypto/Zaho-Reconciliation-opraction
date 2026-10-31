@@ -176,7 +176,7 @@ export default function ResultDrawer({
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.field} className={clsx(r.diff && "diff")}>
-                    <td className="f">{r.field}</td>
+                    <td className="f"><bdi>{r.field}</bdi></td>
                     <td>{it.row_a == null ? <span className="absent">{t("dr.absent")}</span> : (r.a ?? <span className="faint">—</span>)}</td>
                     <td>{it.row_b == null ? <span className="absent">{t("dr.absent")}</span> : (r.b ?? <span className="faint">—</span>)}</td>
                   </tr>

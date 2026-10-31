@@ -297,9 +297,11 @@ function Balance({ a, b, sa, sb, ta, tb, compared }: { a: string; b: string; sa:
         <b style={{ color: Math.abs(diff) > 0.004 ? "var(--critical)" : "var(--green-ink)" }}>{fmtSigned(diff)}</b>
       </div>
       <div className="balance-verdict">
+        {/* Without compared statuses the totals are of all records: say so, not "successful". */}
         {Math.abs(diff) <= 0.004
-          ? t("run.balanceSame")
-          : t(diff > 0 ? "run.balanceMore" : "run.balanceLess", { a, b, amount: fmtMoney(Math.abs(diff)) })}
+          ? t(compared ? "run.balanceSame" : "run.totalSame")
+          : t(compared ? (diff > 0 ? "run.balanceMore" : "run.balanceLess") : diff > 0 ? "run.totalMore" : "run.totalLess",
+              { a, b, amount: fmtMoney(Math.abs(diff)) })}
       </div>
     </div>
   );
@@ -384,8 +386,12 @@ function Calculations({ s, a, b, show }: { s: NonNullable<Run["summary"]>; a: st
               {s.checks.map((c) => (
                 <tr key={c.label}>
                   <td>
-                    <span className={clsx("side-tag", c.side)}>{name(c.side)}</span> <b>{c.label}</b>
-                    <div className="small muted">{t("run.calc.column", { column: c.column })}</div>
+                    {/* Names people typed keep their own direction ("1% fee" stays "1% fee" on the Arabic page);
+                        the report is named once, under the check's own name, which often already says it. */}
+                    <b><bdi>{c.label}</bdi></b>
+                    <div className="small muted">
+                      <span className={clsx("side-tag", c.side)}>{name(c.side)}</span> · {t("run.calc.column")}: <bdi>{c.column}</bdi>
+                    </div>
                   </td>
                   <td><code className="ltr small">{c.formula}</code></td>
                   <td className="num tnum">{fmtInt(c.checked)}</td>

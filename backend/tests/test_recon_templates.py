@@ -839,6 +839,35 @@ def test_the_fee_factor_is_the_templates_setting(layouts, tmp_path):
     assert [c["failed"] for c in s["checks"]] == [1, 1, 1]  # Libyana's arithmetic does not depend on it
 
 
+def test_exports_leave_out_the_successful_amount_when_statuses_are_not_compared(layouts, tmp_path):
+    """Libyana's report has no status column: it has no "successful" rows, so a successful amount of 0 against
+    ours would read as a large difference. The Excel and PDF summaries show the total amount only, like the
+    run page; a run that compares statuses keeps the row."""
+    import zipfile
+
+    from app.engine.export import ExportContext, _report_html, export_xlsx
+    from app.engine.reconcile import results_glob
+
+    s, _ = _calc_run(tmp_path, layouts)
+    assert s["compared"]["status"] is False and s["success_amount_b"] == 0 and s["success_amount_a"] > 0
+    config, *_ = _calc_config(layouts)
+
+    def ctx(summary: dict) -> ExportContext:
+        return ExportContext(run={"id": 1, "name": "Khales", "label_a": "Zaho", "label_b": "Libyana"},
+                             summary=summary, config={"mapping": {"checks": config["checks"]}},
+                             results=results_glob(tmp_path / "run"), path_a=tmp_path / "a.parquet",
+                             path_b=tmp_path / "b.parquet", lang="en")
+
+    out = tmp_path / "report.xlsx"
+    export_xlsx(ctx(s), out, lambda p, m: None)
+    with zipfile.ZipFile(out) as z:
+        xml = b"".join(z.read(n) for n in z.namelist() if n.endswith(".xml"))
+    assert b"Total amount" in xml and b"Successful amount" not in xml
+    assert "Successful amount" not in _report_html(ctx(s), [])
+    compared = {**s, "compared": {**s["compared"], "status": True}}
+    assert "Successful amount" in _report_html(ctx(compared), [])
+
+
 def test_calculated_sources_and_checks_are_validated(layouts):
     sa, sb = layouts["Hawli - Khales"], layouts["Libyana - Khales sales"]
     base = recon_config("Khales — Libyana (خالص)", sa, sb)
